@@ -272,6 +272,13 @@ export default function App(){
       },ADV_DELAY);
     } else {
       cur.locked=cur.locked||{};cur.locked[me]=true;
+      // 참가자(선생님 제외) 전원이 오답이면 60초 기다리지 않고 즉시 정답 공개
+      const tName=cur.teacherName;
+      const participants=Object.keys(cur.players||{}).filter(p=>p!==tName&&p!=="선생님");
+      const lockedStudents=Object.keys(cur.locked).filter(p=>p!==tName&&p!=="선생님");
+      if(participants.length>0&&lockedStudents.length>=participants.length){
+        cur.phase="revealed";cur.winner=null;cur.autoAdvAt=null;
+      }
       await wr(cur);
     }
   };
