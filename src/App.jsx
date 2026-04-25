@@ -135,7 +135,7 @@ export default function App(){
 
   const wr=useCallback(async s=>{
     const ok=await fbPut(s);
-    if(ok){setGs(s);if(s.words)setItems(s.words);}
+    if(ok){setGs(s);}
     return ok;
   },[]);
 
@@ -156,11 +156,22 @@ export default function App(){
     return()=>clearInterval(advRef.current);
   },[gs?.autoAdvAt,gs?.winner,gs?.currentIdx,gs?.phase]);
 
-  const initLayout=useCallback(async cur=>{
-    const el=areaRef.current;if(!el)return cur;
-    const{width:W,height:H}=el.getBoundingClientRect();if(!W)return cur;
-    const ns={...cur,words:place(W,H)};await wr(ns);return ns;
-  },[wr]);
+  // 화면 크기 자동 맞춤: 각 클라이언트가 자기 화면 크기에 맞춰 단어 배치 + 창 크기 변경 시 자동 재배치
+  useEffect(()=>{
+    if(page!=="game")return;
+    const el=areaRef.current;if(!el)return;
+    let raf=null;
+    const update=()=>{
+      const{width:W,height:H}=el.getBoundingClientRect();
+      if(W>0&&H>0)setItems(place(W,H));
+    };
+    update();
+    const onResize=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(update);};
+    const ro=new ResizeObserver(onResize);
+    ro.observe(el);
+    window.addEventListener("resize",onResize);
+    return()=>{ro.disconnect();window.removeEventListener("resize",onResize);cancelAnimationFrame(raf);};
+  },[page]);
 
   const startSession=useCallback(async(name,teacher)=>{
     myRef.current=name;setMyName(name);setIsTeacher(teacher);
@@ -173,7 +184,7 @@ export default function App(){
     await wr(s);setPage("game");
     pollRef.current=setInterval(async()=>{
       const l=await fbGet();
-      if(l){setGs(l);if(l.words)setItems(l.words);setConnStatus("connected");}
+      if(l){setGs(l);setConnStatus("connected");}
       else setConnStatus("error");
     },800);
   },[wr]);
@@ -206,26 +217,12 @@ export default function App(){
     await startSession(name,false);
   },[nameIn,startSession]);
 
-  useEffect(()=>{
-    if(page!=="game")return;
-    const t=setTimeout(async()=>{
-      const s=await fbGet();
-      if(s&&isTeacher&&(!s.words||s.words.length<50))await initLayout(s);
-    },300);
-    return()=>clearTimeout(t);
-  },[page,isTeacher,initLayout]);
-
   useEffect(()=>()=>{clearInterval(pollRef.current);clearInterval(timerRef.current);clearInterval(advRef.current);},[]);
 
   const startGame=async()=>{
     const cur=await fbGet();if(!cur)return;
     const qs=[...DB].sort(()=>Math.random()-0.5).slice(0,numQRef.current);
-    let words=cur.words;
-    if(!words||words.length<50){
-      const el=areaRef.current;
-      if(el){const{width:W,height:H}=el.getBoundingClientRect();if(W)words=place(W,H);}
-    }
-    await wr({...cur,words:words||cur.words||[],questions:qs,currentIdx:0,phase:"active",clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null});
+    await wr({...cur,questions:qs,currentIdx:0,phase:"active",clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null});
   };
   const doReveal=async()=>{const cur=await fbGet();if(cur)await wr({...cur,phase:"revealed",winner:null,autoAdvAt:null});};
   const manualNext=async()=>{
