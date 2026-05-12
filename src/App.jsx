@@ -116,10 +116,10 @@ export default function App(){
   const [advCnt,setAdvCnt]=useState(null);
   const [teacherTaken,setTeacherTaken]=useState(false);
   const [connStatus,setConnStatus]=useState("connecting");
-  // URL에 #teacher가 있을 때만 선생님 버튼이 보이도록
-  const [isTeacherUrl,setIsTeacherUrl]=useState(()=>typeof window!=="undefined"&&window.location.hash==="#teacher");
+  // URL에 #leethemom이 있을 때만 선생님 버튼이 보이도록
+  const [isTeacherUrl,setIsTeacherUrl]=useState(()=>typeof window!=="undefined"&&window.location.hash==="#leethemom");
   useEffect(()=>{
-    const onHash=()=>setIsTeacherUrl(window.location.hash==="#teacher");
+    const onHash=()=>setIsTeacherUrl(window.location.hash==="#leethemom");
     window.addEventListener("hashchange",onHash);
     return()=>window.removeEventListener("hashchange",onHash);
   },[]);
