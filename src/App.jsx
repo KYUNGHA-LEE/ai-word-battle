@@ -13,7 +13,7 @@ const FIREBASE_CONFIG = {
 const ROOM = "default";
 const ROUND_SEC = 60;
 const ADV_DELAY = 2500;
-const T_PASS = "123456";
+const T_PASS = "123123";
 
 const W50 = [
   "인공지능","머신러닝","딥러닝","신경망","자연어처리","챗GPT","알고리즘","데이터","자율주행","얼굴인식",
@@ -116,6 +116,31 @@ export default function App(){
   const [advCnt,setAdvCnt]=useState(null);
   const [teacherTaken,setTeacherTaken]=useState(false);
   const [connStatus,setConnStatus]=useState("connecting");
+  // URL에 #teacher가 있을 때만 선생님 버튼이 보이도록
+  const [isTeacherUrl,setIsTeacherUrl]=useState(()=>typeof window!=="undefined"&&window.location.hash==="#teacher");
+  useEffect(()=>{
+    const onHash=()=>setIsTeacherUrl(window.location.hash==="#teacher");
+    window.addEventListener("hashchange",onHash);
+    return()=>window.removeEventListener("hashchange",onHash);
+  },[]);
+
+  // 학생 입장 링크(해시 없는 깨끗한 URL) 복사
+  const copyStudentUrl=async()=>{
+    const url=window.location.origin+window.location.pathname;
+    try{
+      if(navigator.clipboard&&window.isSecureContext){
+        await navigator.clipboard.writeText(url);
+      }else{
+        const ta=document.createElement("textarea");
+        ta.value=url;ta.style.position="fixed";ta.style.left="-9999px";
+        document.body.appendChild(ta);ta.focus();ta.select();
+        document.execCommand("copy");document.body.removeChild(ta);
+      }
+      alert("학생 입장 링크가 복사되었습니다!\n\n"+url+"\n\n패들렛이나 채팅에 붙여넣어 학생들에게 공유하세요.");
+    }catch(err){
+      prompt("아래 링크를 직접 복사하세요:",url);
+    }
+  };
 
   const areaRef=useRef(null);
   const myRef=useRef("");
@@ -296,32 +321,36 @@ export default function App(){
           </span>
         </div>
 
-        <button onClick={handleTeacherClick}
-          style={{width:"100%",padding:"16px",borderRadius:"14px",marginBottom:"6px",background:teacherTaken?"rgba(245,158,11,0.08)":"linear-gradient(135deg,#f59e0b,#ef4444)",border:teacherTaken?"2px solid rgba(245,158,11,0.3)":"none",color:teacherTaken?"#78716c":"#fff",fontWeight:"900",cursor:"pointer",fontSize:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:"10px"}}>
-          <span style={{fontSize:"22px"}}>👩‍🏫</span>
-          <span>{teacherTaken?"선생님 (입장 중)":showPassInput?"비밀번호 확인 후 입장":"선생님으로 입장"}</span>
-        </button>
-        {showPassInput&&!teacherTaken&&(
-          <input type="password" autoFocus placeholder="선생님 비밀번호" value={passIn}
-            onChange={e=>{setPassIn(e.target.value);setErr("");}}
-            onKeyDown={e=>e.key==="Enter"&&joinTeacher()}
-            style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:"1px solid rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.05)",color:"#fff",fontSize:"15px",boxSizing:"border-box",marginTop:"6px",outline:"none"}}/>
-        )}
-        {teacherTaken?(
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",padding:"0 4px"}}>
-            <p style={{color:"#57534e",fontSize:"11px",margin:0,textAlign:"left"}}>※ 클릭하면 권한을 이어받습니다</p>
-            <button onClick={releaseTeacher}
-              style={{background:"none",border:"none",color:"#78716c",fontSize:"11px",cursor:"pointer",textDecoration:"underline",padding:"2px 4px"}}>
-              슬롯 해제
+        {isTeacherUrl&&(
+          <>
+            <button onClick={handleTeacherClick}
+              style={{width:"100%",padding:"16px",borderRadius:"14px",marginBottom:"6px",background:teacherTaken?"rgba(245,158,11,0.08)":"linear-gradient(135deg,#f59e0b,#ef4444)",border:teacherTaken?"2px solid rgba(245,158,11,0.3)":"none",color:teacherTaken?"#78716c":"#fff",fontWeight:"900",cursor:"pointer",fontSize:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:"10px"}}>
+              <span style={{fontSize:"22px"}}>👩‍🏫</span>
+              <span>{teacherTaken?"선생님 (입장 중)":showPassInput?"비밀번호 확인 후 입장":"선생님으로 입장"}</span>
             </button>
-          </div>
-        ):<div style={{height:"14px"}}/>}
+            {showPassInput&&!teacherTaken&&(
+              <input type="password" autoFocus placeholder="선생님 비밀번호" value={passIn}
+                onChange={e=>{setPassIn(e.target.value);setErr("");}}
+                onKeyDown={e=>e.key==="Enter"&&joinTeacher()}
+                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:"1px solid rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.05)",color:"#fff",fontSize:"15px",boxSizing:"border-box",marginTop:"6px",outline:"none"}}/>
+            )}
+            {teacherTaken?(
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",padding:"0 4px"}}>
+                <p style={{color:"#57534e",fontSize:"11px",margin:0,textAlign:"left"}}>※ 클릭하면 권한을 이어받습니다</p>
+                <button onClick={releaseTeacher}
+                  style={{background:"none",border:"none",color:"#78716c",fontSize:"11px",cursor:"pointer",textDecoration:"underline",padding:"2px 4px"}}>
+                  슬롯 해제
+                </button>
+              </div>
+            ):<div style={{height:"14px"}}/>}
 
-        <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"4px 0 16px"}}>
-          <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
-          <span style={{color:"#334155",fontSize:"12px"}}>또는</span>
-          <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
-        </div>
+            <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"4px 0 16px"}}>
+              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+              <span style={{color:"#334155",fontSize:"12px"}}>또는</span>
+              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+            </div>
+          </>
+        )}
 
         <input type="text" placeholder="닉네임을 입력하세요" value={nameIn}
           onChange={e=>{setNameIn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&joinPlayer()}
@@ -480,8 +509,12 @@ export default function App(){
                 🔄 재시작
               </button>
             )}
+            <button onClick={copyStudentUrl}
+              style={{padding:"10px 14px",borderRadius:"8px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap",marginLeft:"auto"}}>
+              📋 학생 입장 링크 복사
+            </button>
             <button onClick={resetAll}
-              style={{padding:"10px 14px",borderRadius:"8px",background:"rgba(120,113,108,0.08)",border:"1px solid rgba(120,113,108,0.3)",color:"#a8a29e",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap",marginLeft:"auto"}}>
+              style={{padding:"10px 14px",borderRadius:"8px",background:"rgba(120,113,108,0.08)",border:"1px solid rgba(120,113,108,0.3)",color:"#a8a29e",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap"}}>
               🗑 전체 초기화
             </button>
           </div>
