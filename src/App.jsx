@@ -89,15 +89,32 @@ function place(W,H){
   return items;
 }
 
-const FB_URL = `${FIREBASE_CONFIG.databaseURL}/rooms/${ROOM}.json`;
+// ── 익명 인증 (REST) ──────────────────────────────────────────────
+// Firebase Auth REST API로 익명 로그인해 토큰을 받고, 모든 DB 요청에 ?auth=토큰 을 붙인다.
+// 보안 규칙을 "auth != null"로 두면 앱을 거치지 않은 외부인의 DB 접근이 차단된다.
+let _idToken = null;
+async function getAuthToken(){
+  if(_idToken) return _idToken;
+  try{
+    const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_CONFIG.apiKey}`,{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({returnSecureToken:true})
+    });
+    if(!r.ok) return null;
+    const d=await r.json();
+    _idToken=d.idToken;
+    return _idToken;
+  }catch{return null;}
+}
+const FB_BASE = `${FIREBASE_CONFIG.databaseURL}/rooms/${ROOM}.json`;
+async function fbUrl(){ const t=await getAuthToken(); return t ? `${FB_BASE}?auth=${t}` : FB_BASE; }
 async function fbGet(){
-  try{const r=await fetch(FB_URL);if(!r.ok)return null;const d=await r.json();return d;}catch{return null;}
+  try{const r=await fetch(await fbUrl());if(!r.ok){if(r.status===401)_idToken=null;return null;}const d=await r.json();return d;}catch{return null;}
 }
 async function fbPut(data){
-  try{const r=await fetch(FB_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});return r.ok;}catch{return false;}
+  try{const r=await fetch(await fbUrl(),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});if(r.status===401)_idToken=null;return r.ok;}catch{return false;}
 }
 async function fbPatch(updates){
-  try{const r=await fetch(FB_URL,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});return r.ok;}catch{return false;}
+  try{const r=await fetch(await fbUrl(),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});if(r.status===401)_idToken=null;return r.ok;}catch{return false;}
 }
 
 export default function App(){
