@@ -13,7 +13,8 @@ https://ai-word-battle.vercel.app
 - 제한 시간(라운드당 60초) 동안 가장 많이 맞힌 사람이 승리!
 
 ## 선생님 모드 들어가는 법
-- 주소 뒤에 `#leethemom` 을 붙이세요 (예: `사이트주소/#leethemom`)
+- 주소 뒤에 `?mode=admin` 을 붙이세요 (예: `사이트주소/?mode=admin`)
+- 예전 방식인 `#leethemom` 도 그대로 동작합니다
 - 선생님 비밀번호를 입력하면 관리 화면이 나옵니다
 - ⚠️ 포크해서 쓰실 분은 `src/App.jsx`의 `T_PASS` 값을 본인 비밀번호로 바꾸세요
 

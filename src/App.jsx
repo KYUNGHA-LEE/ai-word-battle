@@ -133,12 +133,14 @@ export default function App(){
   const [advCnt,setAdvCnt]=useState(null);
   const [teacherTaken,setTeacherTaken]=useState(false);
   const [connStatus,setConnStatus]=useState("connecting");
-  // URL에 #leethemom이 있을 때만 선생님 버튼이 보이도록
-  const [isTeacherUrl,setIsTeacherUrl]=useState(()=>typeof window!=="undefined"&&window.location.hash==="#leethemom");
+  // URL에 ?mode=admin이 있을 때만 선생님 버튼이 보이도록 (예전 #leethemom도 계속 동작)
+  const checkTeacherUrl=()=>typeof window!=="undefined"&&(new URLSearchParams(window.location.search).get("mode")==="admin"||window.location.hash==="#leethemom");
+  const [isTeacherUrl,setIsTeacherUrl]=useState(checkTeacherUrl);
   useEffect(()=>{
-    const onHash=()=>setIsTeacherUrl(window.location.hash==="#leethemom");
-    window.addEventListener("hashchange",onHash);
-    return()=>window.removeEventListener("hashchange",onHash);
+    const onUrl=()=>setIsTeacherUrl(checkTeacherUrl());
+    window.addEventListener("hashchange",onUrl);
+    window.addEventListener("popstate",onUrl);
+    return()=>{window.removeEventListener("hashchange",onUrl);window.removeEventListener("popstate",onUrl);};
   },[]);
 
   // 학생 입장 링크(해시 없는 깨끗한 URL) 복사
