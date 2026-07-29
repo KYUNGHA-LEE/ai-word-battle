@@ -330,8 +330,8 @@ export default function App(){
   if(page==="login")return(
     <div style={{height:"100vh",background:"linear-gradient(135deg,#0f172a,#1e1b4b)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif"}}>
       <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(12px)",borderRadius:"24px",padding:"40px",width:"380px",border:"1px solid rgba(255,255,255,0.1)",textAlign:"center"}}>
-        <div style={{fontSize:"52px",marginBottom:"8px"}}>🧠</div>
-        <h1 style={{color:"#fff",margin:"0 0 4px",fontSize:"24px",fontWeight:"900"}}>AI 워드 배틀</h1>
+        <div style={{fontSize:"52px",marginBottom:"8px"}}>🔎</div>
+        <h1 style={{color:"#fff",margin:"0 0 4px",fontSize:"24px",fontWeight:"900"}}>50개의 단어 속에 정답을 찾아라</h1>
         <p style={{color:"#64748b",margin:"0 0 8px",fontSize:"13px"}}>AI와 함께하는 단어 퀴즈 게임!</p>
         <div style={{display:"inline-flex",gap:"6px",alignItems:"center",background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:"6px",padding:"3px 10px",marginBottom:"22px"}}>
           <span style={{width:"7px",height:"7px",borderRadius:"50%",background:connStatus==="connected"?"#22c55e":connStatus==="error"?"#ef4444":"#f59e0b",display:"inline-block"}}/>
@@ -400,7 +400,7 @@ export default function App(){
   return(
     <div style={{height:"100vh",background:"linear-gradient(135deg,#0f172a,#1e1b4b)",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden"}}>
       <div style={{padding:"10px 16px",background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:"10px"}}>
-        <span style={{color:"#fff",fontWeight:"900",fontSize:"17px",whiteSpace:"nowrap"}}>🧠 AI배틀</span>
+        <span style={{color:"#fff",fontWeight:"900",fontSize:"17px",whiteSpace:"nowrap"}}>🔎 단어찾기</span>
         {phase==="active"&&(
           <div style={{display:"flex",alignItems:"center",gap:"5px",background:"rgba(0,0,0,0.35)",borderRadius:"10px",padding:"6px 12px",border:`1px solid ${tc}55`,flexShrink:0}}>
             <span style={{fontSize:"13px"}}>{timeExpired?"⌛":"⏱"}</span>
