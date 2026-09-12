@@ -33,11 +33,11 @@ const ONLINE_MS = 30000;
 
 const BAD_NAME = /[.#$\[\]\/]/;
 
-function place(words, W, H, fs=13){
-  const items=[];const CH=fs,PX=Math.round(fs*0.9),PY=Math.round(fs*0.5),G=Math.round(fs*0.6);
+function place(words, W, H, fs=13, compact=false){
+  const items=[];const CH=fs,PX=Math.round(fs*(compact?0.6:0.9)),PY=Math.round(fs*(compact?0.35:0.5)),G=Math.round(fs*(compact?0.3:0.6));
   const free=(x,y,w,h,g)=>!items.some(it=>x<it.x+it.w+g&&x+w+g>it.x&&y<it.y+it.h+g&&y+h+g>it.y);
   for(const word of words){
-    const w=word.length*(CH*0.95)+PX*2,h=CH+PY*2;let p=null;
+    const w=word.length*(CH*(compact?0.9:0.95))+PX*2,h=CH+PY*2;let p=null;
     for(let i=0;i<400&&!p;i++){
       const x=G+Math.random()*Math.max(1,W-w-G*2),y=G+Math.random()*Math.max(1,H-h-G*2);
       if(free(x,y,w,h,G))p={x,y,w,h};
@@ -101,6 +101,9 @@ export default function App(){
   const [showQR,setShowQR]=useState(false);
   const [showQList,setShowQList]=useState(false);
   const [wordFs,setWordFs]=useState(13);
+  const [vw,setVw]=useState(typeof window!=="undefined"?window.innerWidth:1024);
+  useEffect(()=>{const on=()=>setVw(window.innerWidth);window.addEventListener("resize",on);return()=>window.removeEventListener("resize",on);},[]);
+  const narrow=vw<700;
   const [now,setNow]=useState(Date.now());
 
   const checkTeacherUrl=()=>typeof window!=="undefined"&&(new URLSearchParams(window.location.search).get("mode")==="admin"||window.location.hash==="#leethemom");
@@ -221,9 +224,10 @@ export default function App(){
     const update=()=>{
       const{width:W,height:H}=el.getBoundingClientRect();
       // 학생 화면은 크게(넓은 화면 19px, 좁은 화면 15px), 선생님 화면은 작게(13px)
-      const fs=isTeacher?13:(W<640?15:19);
+      const compact=W<640;
+      const fs=isTeacher&&!compact?13:(compact?14:19);
       setWordFs(fs);
-      if(W>0&&H>0)setItems(place(words,W,H,fs));
+      if(W>0&&H>0)setItems(place(words,W,H,fs,compact));
     };
     update();
     const onResize=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(update);};
@@ -393,7 +397,7 @@ export default function App(){
 
   // ── 테마 (플랫 인포그래픽) ──
   const C={yellow:"#F4B942",teal:"#2FA79C",red:"#E0524D",dark:"#3B3F45",gray:"#8A9096",light:"#F4F5F2",line:"#E4E6E1",white:"#fff"};
-  const SET_COLOR={ai:C.teal,capital:C.yellow,proverb:C.red,idiom:C.dark,science:"#5B8DEF"};
+  const SET_COLOR={ai:C.teal,capital:C.yellow,proverb:C.red,idiom:C.dark,science:"#5B8DEF",sdgs:"#4CAF7D"};
   const setColor=SET_COLOR[curSetId]||C.teal;
   const FONT='"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif';
   const card={background:C.white,borderRadius:"18px",boxShadow:"0 10px 30px rgba(59,63,69,0.08)",border:`1px solid ${C.line}`};
@@ -533,35 +537,35 @@ export default function App(){
   return(
     <div style={{height:"100vh",...dotBg,display:"flex",flexDirection:"column",fontFamily:FONT,overflow:"hidden"}}>
       {/* ── 상단 바 ── */}
-      <div style={{padding:"10px 16px",background:"#fff",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"10px",boxShadow:"0 2px 10px rgba(0,0,0,0.03)"}}>
+      <div style={{padding:narrow?"8px 10px":"10px 16px",background:"#fff",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:narrow?"6px":"10px",boxShadow:"0 2px 10px rgba(0,0,0,0.03)",flexWrap:narrow?"wrap":"nowrap"}}>
         <span style={{display:"flex",alignItems:"center",gap:"8px",whiteSpace:"nowrap"}}>
           <span style={{width:"32px",height:"32px",borderRadius:"10px",background:setColor,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"17px"}}>{curSet.emoji}</span>
-          <span style={{color:C.dark,fontWeight:"900",fontSize:"15px"}}>{curSet.name}</span>
+          {!narrow&&<span style={{color:C.dark,fontWeight:"900",fontSize:"15px"}}>{curSet.name}</span>}
         </span>
         {phase==="active"&&(
-          <div style={{display:"flex",alignItems:"center",gap:"10px",background:tc,borderRadius:"12px",padding:"5px 14px",flexShrink:0,color:"#fff",boxShadow:`0 6px 14px ${tc}55`}}>
-            <span style={{fontWeight:"900",fontSize:"22px",minWidth:"30px",textAlign:"center",lineHeight:1}}>{timeExpired?"0":timeLeft}</span>
-            {!timeExpired&&<span style={{fontSize:"11px",fontWeight:"800",whiteSpace:"nowrap",borderLeft:"1px solid rgba(255,255,255,0.4)",paddingLeft:"10px",opacity:0.95}}>지금 맞히면 <b style={{fontSize:"15px"}}>+{nowPts}</b>점</span>}
+          <div style={{display:"flex",alignItems:"center",gap:narrow?"6px":"10px",background:tc,borderRadius:"12px",padding:narrow?"4px 10px":"5px 14px",flexShrink:0,color:"#fff",boxShadow:`0 6px 14px ${tc}55`}}>
+            <span style={{fontWeight:"900",fontSize:narrow?"18px":"22px",minWidth:"26px",textAlign:"center",lineHeight:1}}>{timeExpired?"0":timeLeft}</span>
+            {!timeExpired&&<span style={{fontSize:"11px",fontWeight:"800",whiteSpace:"nowrap",borderLeft:"1px solid rgba(255,255,255,0.4)",paddingLeft:narrow?"6px":"10px",opacity:0.95}}>{narrow?"":"지금 맞히면 "}<b style={{fontSize:narrow?"13px":"15px"}}>+{nowPts}</b>점</span>}
           </div>
         )}
-        <div style={{flex:1,background:C.light,borderRadius:"12px",padding:"8px 14px",display:"flex",alignItems:"center",gap:"10px",overflow:"hidden",minHeight:"36px"}}>
+        <div style={{flex:narrow?"none":1,width:narrow?"100%":"auto",order:narrow?10:0,minWidth:0,background:C.light,borderRadius:"12px",padding:narrow?"8px 12px":"8px 14px",display:"flex",alignItems:"center",gap:"8px",overflow:"hidden",minHeight:"36px",boxSizing:"border-box"}}>
           {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>🕐 선생님이 게임을 시작하기를 기다리는 중...</span>}
           {(phase==="active"||phase==="revealed")&&curQ&&<>
             <span style={{color:"#fff",background:setColor,borderRadius:"6px",padding:"2px 7px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap",flexShrink:0}}>{qi+1}/{totalQ}</span>
-            <span style={{color:C.dark,fontWeight:"800",fontSize:"14px"}}>{curQ.q}</span>
-            {phase==="revealed"&&<span style={{color:C.teal,fontWeight:"900",fontSize:"14px",marginLeft:"auto",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>}
+            <span style={{color:C.dark,fontWeight:"800",fontSize:narrow?"14px":"14px",lineHeight:1.35,minWidth:0}}>{curQ.q}</span>
+            {phase==="revealed"&&<span style={{color:C.teal,fontWeight:"900",fontSize:"14px",marginLeft:"auto",whiteSpace:"nowrap",flexShrink:0}}>✅ {curQ.a}</span>}
           </>}
           {phase==="finished"&&<span style={{color:C.red,fontWeight:"900",fontSize:"15px"}}>🏁 게임 종료!</span>}
         </div>
-        <div style={{display:"flex",gap:"6px",flexShrink:0,alignItems:"center"}}>
-          {sorted.slice(0,3).map(([n,d],ri)=>(
+        <div style={{display:"flex",gap:"6px",flexShrink:0,alignItems:"center",marginLeft:narrow?"auto":0}}>
+          {!narrow&&sorted.slice(0,3).map(([n,d],ri)=>(
             <div key={n} style={chip()}>
               <span style={{width:"20px",height:"20px",borderRadius:"50%",background:medal(ri),color:"#fff",fontSize:"10px",fontWeight:"900",display:"flex",alignItems:"center",justifyContent:"center"}}>{ri+1}</span>
               <span style={{color:C.dark,fontSize:"11px",maxWidth:"60px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:"700"}}>{n}</span>
               <span style={{color:medal(ri),fontWeight:"900",fontSize:"12px"}}>{d.score||0}</span>
             </div>
           ))}
-          {!isTeacher&&<button onClick={()=>{setShowPlayers(v=>!v);SFX.click();}} title="참가자 전체 보기"
+          {(!isTeacher||narrow)&&<button onClick={()=>{setShowPlayers(v=>!v);SFX.click();}} title="참가자 전체 보기"
             style={{background:showPlayers?C.dark:C.teal,border:"none",color:"#fff",fontSize:"12px",fontWeight:"900",padding:"7px 12px",borderRadius:"10px",cursor:"pointer",whiteSpace:"nowrap",display:"flex",gap:"6px",alignItems:"center",fontFamily:FONT}}>
             👥 <span style={{fontSize:"14px"}}>{onlineStudents}</span>명
             {studentEntries.length>onlineStudents&&<span style={{opacity:0.7,fontWeight:"600"}}>/{studentEntries.length}</span>}
@@ -571,7 +575,7 @@ export default function App(){
             {muted?"🔇":"🔊"}
           </button>
         </div>
-        {isTeacher&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
+        {isTeacher&&!narrow&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
       </div>
 
       {/* ── 단어 영역 (+ 선생님 사이드바) ── */}
@@ -671,7 +675,7 @@ export default function App(){
         )}
 
         {/* 참가자 전체 패널 (학생용 서랍) */}
-        {showPlayers&&!isTeacher&&(
+        {showPlayers&&(!isTeacher||narrow)&&(
           <div style={{position:"absolute",top:0,right:0,bottom:0,width:"270px",maxWidth:"80%",zIndex:50,background:"#fff",borderLeft:`1px solid ${C.line}`,display:"flex",flexDirection:"column",boxShadow:"-12px 0 30px rgba(59,63,69,0.1)"}}>
             <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"8px"}}>
               <span style={{color:C.dark,fontWeight:"900",fontSize:"14px",flex:1}}>👥 참가자 {studentEntries.length}명</span>
@@ -694,7 +698,7 @@ export default function App(){
           if(revealed&&isAns){bg=C.teal;brd=`1.5px solid ${C.teal}`;col="#fff";glow=`0 8px 22px ${C.teal}66`;sc="1.12";}
           return(
             <div key={it.word} onClick={()=>canClick&&clickWord(it.word)} className={canClick?"wd":""}
-              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:`${Math.round(wordFs*0.8)}px`,padding:`${Math.round(wordFs*0.5)}px ${Math.round(wordFs*0.9)}px`,fontSize:`${wordFs}px`,fontWeight:"800",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
+              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:`${Math.round(wordFs*0.8)}px`,padding:narrow?`${Math.round(wordFs*0.35)}px ${Math.round(wordFs*0.6)}px`:`${Math.round(wordFs*0.5)}px ${Math.round(wordFs*0.9)}px`,fontSize:`${wordFs}px`,fontWeight:"800",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
               {it.word}
               {showDots&&clickers.length>0&&(
                 <span style={{display:"flex",gap:"2px",marginLeft:"3px"}}>
@@ -706,7 +710,7 @@ export default function App(){
         })}
       </div>
 
-      {isTeacher&&(
+      {isTeacher&&!narrow&&(
         <div style={{width:"300px",flexShrink:0,background:"#fff",borderLeft:`1px solid ${C.line}`,display:"flex",flexDirection:"column",minHeight:0}}>
           <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"8px"}}>
             <span style={{color:C.dark,fontWeight:"900",fontSize:"14px",flex:1}}>👥 참가자 {studentEntries.length}명</span>
@@ -775,7 +779,7 @@ export default function App(){
 
       {/* ── 하단 바 ── */}
       {isTeacher?(
-        <div style={{padding:"12px 16px",background:"#fff",borderTop:`4px solid ${C.yellow}`}}>
+        <div style={{padding:narrow?"8px 10px":"12px 16px",background:"#fff",borderTop:`4px solid ${C.yellow}`,maxHeight:"45vh",overflow:"auto"}}>
           {curQ&&(phase==="active"||phase==="revealed")&&(
             <div style={{background:"#FFF7E0",borderRadius:"12px",padding:"9px 16px",marginBottom:"10px",display:"flex",alignItems:"center",gap:"14px",flexWrap:"wrap"}}>
               <span style={{color:"#3b2f00",background:C.yellow,borderRadius:"6px",padding:"2px 8px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap"}}>👩‍🏫 선생님 전용</span>
@@ -831,7 +835,7 @@ export default function App(){
           </div>
         </div>
       ):(
-        <div style={{padding:"10px 16px",background:"#fff",borderTop:`4px solid ${C.teal}`,display:"flex",alignItems:"center",gap:"10px",minHeight:"46px"}}>
+        <div style={{padding:narrow?"8px 10px":"10px 16px",background:"#fff",borderTop:`4px solid ${C.teal}`,display:"flex",alignItems:"center",gap:narrow?"6px":"10px",minHeight:"46px",flexWrap:"wrap",fontSize:narrow?"12px":"13px"}}>
           <span style={{background:C.teal,color:"#fff",fontSize:"11px",fontWeight:"900",padding:"4px 10px",borderRadius:"8px",flexShrink:0}}>🎮 플레이어</span>
           {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>선생님이 게임을 시작하기를 기다리는 중...</span>}
           {phase==="active"&&!myClicked&&!isLocked&&!timeExpired&&<span style={{color:C.dark,fontSize:"13px",fontWeight:"800"}}>👆 정답이라고 생각하는 단어를 클릭하세요! <span style={{color:C.gray,fontWeight:"600"}}>(빠를수록 높은 점수)</span></span>}
@@ -842,9 +846,9 @@ export default function App(){
           {phase==="revealed"&&winner&&winner!==myName&&<span style={{color:C.gray,fontSize:"13px"}}>👏 {winner}님이 먼저 맞혔어요 (+{gs?.lastBonus}점)</span>}
           {phase==="revealed"&&!winner&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 아무도 못 맞혔어요. 정답을 확인하세요.</span>}
           {phase==="finished"&&<span style={{color:C.red,fontSize:"13px",fontWeight:"800"}}>🏁 게임 종료! 최종 순위를 확인하세요!</span>}
-          <span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center",whiteSpace:"nowrap"}}>
+          <span style={{marginLeft:"auto",display:"flex",gap:"8px",alignItems:"center",whiteSpace:"nowrap"}}>
             {players[myName]&&<span style={{background:C.light,borderRadius:"999px",padding:"4px 12px",color:C.dark,fontSize:"12px",fontWeight:"800"}}>내 점수 <b style={{color:C.red,fontSize:"14px"}}>{players[myName].score||0}</b>점{rankOf(myName)>=0&&<span style={{color:C.gray,fontWeight:"600"}}> · {rankOf(myName)+1}위</span>}</span>}
-            <span style={{color:C.gray,fontSize:"12px"}}>{myName}</span>
+            {!narrow&&<span style={{color:C.gray,fontSize:"12px"}}>{myName}</span>}
           </span>
         </div>
       )}
