@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { QUESTION_SETS, DEFAULT_SET_ID, getSet, wordsOf } from "./questionSets.js";
+import { SFX, unlock as unlockAudio, isMuted, setMuted as persistMuted } from "./sounds.js";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDn7u-BWzOLhM_8Ku8KiPH11TeMhQlC1lI",
@@ -12,73 +14,25 @@ const FIREBASE_CONFIG = {
 
 const ROOM = "default";
 const ROUND_SEC = 60;
-const ADV_DELAY = 2500;
-const T_PASS = "123123";
+const ADV_DELAY = 3000;
+// 선생님 비밀번호 (여러 개 허용)
+const T_PASSES = ["123123", "911280"];
 
-const W50 = [
-  "인공지능","머신러닝","딥러닝","신경망","자연어처리","챗GPT","알고리즘","데이터","자율주행","얼굴인식",
-  "음성인식","번역","챗봇","강화학습","지도학습","비지도학습","과적합","알파고","생성형AI","이미지생성",
-  "프롬프트","파라미터","트랜스포머","예측","분류","클러스터링","이상탐지","편향","딥페이크","핀테크",
-  "스마트팜","바둑","의료AI","AI윤리","자동화","빅데이터","클라우드","사물인터넷","LLM","할루시네이션",
-  "임베딩","API","멀티모달","로봇공학","스마트팩토리","개인정보","AI에이전트","브레인스토밍","튜링테스트","메타버스"
-];
+// ── 점수 규칙 ─────────────────────────────────────────────
+// 가장 먼저 정답을 클릭한 1명만 점수를 얻는다.
+// 100점에서 시작해 1초에 1점씩 줄고, 최소 40점. 오답은 그 문제에서 잠김.
+const MAX_PT = 100, MIN_PT = 40;
+const pointsAt = elapsedMs => Math.max(MIN_PT, MAX_PT - Math.floor(elapsedMs / 1000));
 
-const DB = [
-  {q:"사람처럼 학습하고 판단하는 컴퓨터 기술을 통틀어 뭐라고 하나요?",a:"인공지능"},
-  {q:"데이터를 반복 학습해 스스로 규칙을 찾는 AI 핵심 기술은?",a:"머신러닝"},
-  {q:"인간 뇌를 모방한 층층이 쌓인 신경망으로 학습하는 기술은?",a:"딥러닝"},
-  {q:"딥러닝의 기반이 되는, 뇌의 뉴런을 모방한 구조는?",a:"신경망"},
-  {q:"AI가 사람의 글과 말을 이해하고 생성하는 기술 분야는?",a:"자연어처리"},
-  {q:"OpenAI가 2022년 공개한 대화형 AI 서비스의 이름은?",a:"챗GPT"},
-  {q:"문제를 해결하기 위한 단계적 처리 절차나 규칙을 뭐라 하나요?",a:"알고리즘"},
-  {q:"AI가 학습하기 위해 반드시 필요한 방대한 정보의 원료는?",a:"데이터"},
-  {q:"AI가 사람 없이 스스로 운전하는 기술은?",a:"자율주행"},
-  {q:"스마트폰 잠금 해제나 공항 출입에 쓰이는 AI 신원 확인 기술은?",a:"얼굴인식"},
-  {q:"시리, 빅스비처럼 말소리를 텍스트로 변환하는 AI 기술은?",a:"음성인식"},
-  {q:"파파고·구글이 AI로 언어를 자동으로 변환해주는 기능은?",a:"번역"},
-  {q:"고객센터 대신 텍스트로 질문에 자동 답변해주는 AI 프로그램은?",a:"챗봇"},
-  {q:"게임에서 보상을 받으며 최적의 전략을 스스로 익히는 AI 학습 방식은?",a:"강화학습"},
-  {q:"정답이 달린 데이터로 AI를 훈련하는 방식은?",a:"지도학습"},
-  {q:"정답 없이 데이터에서 패턴을 스스로 발견하는 학습 방식은?",a:"비지도학습"},
-  {q:"AI가 학습 데이터에만 너무 최적화되어 새 데이터에서 틀리는 문제는?",a:"과적합"},
-  {q:"2016년 이세돌 9단을 꺾어 세계를 놀라게 한 구글 딥마인드의 AI는?",a:"알파고"},
-  {q:"텍스트·이미지·음악 등 새로운 콘텐츠를 스스로 만들어내는 AI는?",a:"생성형AI"},
-  {q:"미드저니·DALL-E처럼 텍스트 설명만으로 그림을 만드는 AI 기능은?",a:"이미지생성"},
-  {q:"AI에게 원하는 결과를 얻기 위해 입력하는 질문이나 명령문은?",a:"프롬프트"},
-  {q:"AI 모델의 지식이 저장된 수십억 개의 수치값을 뭐라 하나요?",a:"파라미터"},
-  {q:"ChatGPT·BERT 등 현대 언어 AI의 핵심이 된 딥러닝 구조는?",a:"트랜스포머"},
-  {q:"AI가 과거 데이터를 분석해 미래 결과를 추론하는 것은?",a:"예측"},
-  {q:"이메일을 스팸/정상으로, 사진을 고양이/개로 나누는 AI 작업은?",a:"분류"},
-  {q:"정답 없이 비슷한 데이터를 자동으로 같은 그룹으로 묶는 기법은?",a:"클러스터링"},
-  {q:"신용카드 사기나 공장 불량처럼 평소와 다른 패턴을 잡아내는 AI 기술은?",a:"이상탐지"},
-  {q:"학습 데이터에 포함된 불공정한 선입견이 AI 결과에 영향을 주는 문제는?",a:"편향"},
-  {q:"AI로 실제처럼 보이는 가짜 얼굴·영상을 만드는 기술은?",a:"딥페이크"},
-  {q:"AI를 활용한 간편결제·인터넷 뱅킹 같은 금융 기술 산업은?",a:"핀테크"},
-  {q:"AI·IoT로 온도·습도를 자동 관리하는 첨단 농장은?",a:"스마트팜"},
-  {q:"알파고가 이세돌을 꺾은 경기 종목은?",a:"바둑"},
-  {q:"AI가 CT·MRI를 분석해 암을 진단하거나 신약 개발을 돕는 분야는?",a:"의료AI"},
-  {q:"AI 개발에서 공정성·투명성·책임을 다루는 분야는?",a:"AI윤리"},
-  {q:"AI·로봇이 사람 대신 반복 작업을 처리하는 것은?",a:"자동화"},
-  {q:"AI 학습에 필요한 수십억 건 이상의 방대한 데이터 집합은?",a:"빅데이터"},
-  {q:"AI 서비스를 인터넷으로 어디서든 쓸 수 있게 하는 서버 인프라는?",a:"클라우드"},
-  {q:"냉장고·전구 등 사물이 인터넷에 연결되어 AI와 소통하는 기술은?",a:"사물인터넷"},
-  {q:"GPT-4·클로드처럼 대규모 텍스트로 학습된 거대 언어 모델의 약자는?",a:"LLM"},
-  {q:"AI가 사실이 아닌 내용을 자신 있게 말하는 오류 현상은?",a:"할루시네이션"},
-  {q:"단어나 문장을 AI가 이해할 수 있는 숫자 벡터로 변환하는 기법은?",a:"임베딩"},
-  {q:"카카오·네이버 AI 기능을 내 앱에서 쓸 수 있게 연결해주는 인터페이스는?",a:"API"},
-  {q:"텍스트·이미지·음성을 동시에 처리할 수 있는 AI 모델을 뭐라 하나요?",a:"멀티모달"},
-  {q:"AI와 기계를 결합해 물리적 작업을 수행하는 로봇을 연구하는 분야는?",a:"로봇공학"},
-  {q:"AI·로봇이 생산 전 과정을 자동화한 첨단 제조 공장은?",a:"스마트팩토리"},
-  {q:"AI 학습 시 반드시 보호해야 하는 이름·주소·생체정보 등은?",a:"개인정보"},
-  {q:"목표를 스스로 설정하고 계획·실행·수정을 반복하며 임무를 완수하는 AI는?",a:"AI에이전트"},
-  {q:"AI와 함께 자유롭게 아이디어를 쏟아내며 창의적 발상을 이끄는 기법은?",a:"브레인스토밍"},
-  {q:"1950년 앨런 튜링이 제안한, AI가 인간과 구별되지 않으면 지능이 있다고 보는 테스트는?",a:"튜링테스트"},
-  {q:"AI·VR·AR이 결합해 현실과 가상이 융합된 3D 디지털 공간은?",a:"메타버스"},
-];
+// 생존 신호: 이 시간 안에 신호가 없으면 "나감"으로 표시
+const HEARTBEAT_MS = 10000;
+const ONLINE_MS = 30000;
 
-function place(W,H){
+const BAD_NAME = /[.#$\[\]\/]/;
+
+function place(words, W, H){
   const items=[];const CH=13,PX=13,PY=7,G=9;
-  for(const word of W50){
+  for(const word of words){
     const w=word.length*(CH*0.78)+PX*2,h=CH+PY*2;let p=null;
     for(let i=0;i<500;i++){
       const x=G+Math.random()*(W-w-G*2),y=G+Math.random()*(H-h-G*2);
@@ -90,8 +44,6 @@ function place(W,H){
 }
 
 // ── 익명 인증 (REST) ──────────────────────────────────────────────
-// Firebase Auth REST API로 익명 로그인해 토큰을 받고, 모든 DB 요청에 ?auth=토큰 을 붙인다.
-// 보안 규칙을 "auth != null"로 두면 앱을 거치지 않은 외부인의 DB 접근이 차단된다.
 let _idToken = null;
 async function getAuthToken(){
   if(_idToken) return _idToken;
@@ -117,6 +69,8 @@ async function fbPatch(updates){
   try{const r=await fetch(await fbUrl(),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});if(r.status===401)_idToken=null;return r.ok;}catch{return false;}
 }
 
+const freshState=()=>({words:[],questions:[],currentIdx:-1,phase:"waiting",players:{},clicks:{},locked:{},winner:null,round:0,startTime:null,autoAdvAt:null,teacherName:null,setId:DEFAULT_SET_ID,lastBonus:null,winSec:null});
+
 export default function App(){
   const [page,setPage]=useState("login");
   const [nameIn,setNameIn]=useState("");
@@ -128,12 +82,16 @@ export default function App(){
   const [items,setItems]=useState([]);
   const [feedback,setFeedback]=useState(null);
   const [numQ,setNumQ]=useState(10);
+  const [setId,setSetId]=useState(DEFAULT_SET_ID);
   const [err,setErr]=useState("");
   const [timeLeft,setTimeLeft]=useState(ROUND_SEC);
   const [advCnt,setAdvCnt]=useState(null);
   const [teacherTaken,setTeacherTaken]=useState(false);
   const [connStatus,setConnStatus]=useState("connecting");
-  // URL에 ?mode=admin이 있을 때만 선생님 버튼이 보이도록 (예전 #leethemom도 계속 동작)
+  const [muted,setMutedState]=useState(isMuted());
+  const [showPlayers,setShowPlayers]=useState(false);
+  const [now,setNow]=useState(Date.now());
+
   const checkTeacherUrl=()=>typeof window!=="undefined"&&(new URLSearchParams(window.location.search).get("mode")==="admin"||window.location.hash==="#leethemom");
   const [isTeacherUrl,setIsTeacherUrl]=useState(checkTeacherUrl);
   useEffect(()=>{
@@ -143,7 +101,8 @@ export default function App(){
     return()=>{window.removeEventListener("hashchange",onUrl);window.removeEventListener("popstate",onUrl);};
   },[]);
 
-  // 학생 입장 링크(해시 없는 깨끗한 URL) 복사
+  const toggleMute=()=>{const v=!muted;persistMuted(v);setMutedState(v);if(!v){unlockAudio();SFX.click();}};
+
   const copyStudentUrl=async()=>{
     const url=window.location.origin+window.location.pathname;
     try{
@@ -164,10 +123,14 @@ export default function App(){
   const areaRef=useRef(null);
   const myRef=useRef("");
   const pollRef=useRef(null);
+  const hbRef=useRef(null);
   const timerRef=useRef(null);
   const advRef=useRef(null);
   const numQRef=useRef(10);
+  const setIdRef=useRef(DEFAULT_SET_ID);
+  const prevRef=useRef({phase:null,idx:null,round:null,players:null,winner:null});
   useEffect(()=>{numQRef.current=numQ;},[numQ]);
+  useEffect(()=>{setIdRef.current=setId;},[setId]);
 
   useEffect(()=>{
     (async()=>{
@@ -176,6 +139,9 @@ export default function App(){
       else setConnStatus("connected");
     })();
   },[]);
+
+  // 접속 상태 표시용 현재 시각 (5초마다 갱신)
+  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),5000);return()=>clearInterval(t);},[]);
 
   const wr=useCallback(async s=>{
     const ok=await fbPut(s);
@@ -200,14 +166,45 @@ export default function App(){
     return()=>clearInterval(advRef.current);
   },[gs?.autoAdvAt,gs?.winner,gs?.currentIdx,gs?.phase]);
 
-  // 화면 크기 자동 맞춤: 각 클라이언트가 자기 화면 크기에 맞춰 단어 배치 + 창 크기 변경 시 자동 재배치
+  // ── 효과음 트리거: 게임 상태 변화 감지 ──
+  useEffect(()=>{
+    if(page!=="game"||!gs)return;
+    const p=prevRef.current;
+    const me=myRef.current;
+    const phase=gs.phase, idx=gs.currentIdx, round=gs.round||0;
+    const cnt=Object.keys(gs.players||{}).length;
+
+    if(p.players!==null&&cnt>p.players)SFX.join();
+
+    const newQuestion=phase==="active"&&(p.phase!=="active"||p.idx!==idx||p.round!==round);
+    if(newQuestion&&p.phase!==null)SFX.start();
+
+    if(phase==="revealed"&&p.phase!=="revealed"){
+      if(gs.winner&&gs.winner!==me)SFX.otherWin();
+      if(!gs.winner)SFX.timeout();
+    }
+    if(phase==="finished"&&p.phase!=="finished"&&p.phase!==null)SFX.finish();
+
+    prevRef.current={phase,idx,round,players:cnt,winner:gs.winner};
+  },[gs,page]);
+
+  // 마지막 10초 째깍
+  useEffect(()=>{
+    if(page!=="game"||gs?.phase!=="active")return;
+    if(timeLeft<=0||timeLeft>10)return;
+    if(timeLeft<=3)SFX.tickHot();else SFX.tick();
+  },[timeLeft,gs?.phase,page]);
+
+  // 단어 배치 (세트가 바뀌면 다시 배치)
+  const curSetId=gs?.setId||DEFAULT_SET_ID;
   useEffect(()=>{
     if(page!=="game")return;
     const el=areaRef.current;if(!el)return;
     let raf=null;
+    const words=wordsOf(curSetId);
     const update=()=>{
       const{width:W,height:H}=el.getBoundingClientRect();
-      if(W>0&&H>0)setItems(place(W,H));
+      if(W>0&&H>0)setItems(place(words,W,H));
     };
     update();
     const onResize=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(update);};
@@ -215,31 +212,40 @@ export default function App(){
     ro.observe(el);
     window.addEventListener("resize",onResize);
     return()=>{ro.disconnect();window.removeEventListener("resize",onResize);cancelAnimationFrame(raf);};
-  },[page]);
+  },[page,curSetId]);
 
   const startSession=useCallback(async(name,teacher)=>{
+    unlockAudio();
     myRef.current=name;setMyName(name);setIsTeacher(teacher);
     let s=await fbGet();
-    if(!s)s={words:[],questions:[],currentIdx:-1,phase:"waiting",players:{},clicks:{},locked:{},winner:null,round:0,startTime:null,autoAdvAt:null,teacherName:null};
+    if(!s)s=freshState();
     if(!s.players)s.players={};
     const color=teacher?"#f59e0b":`hsl(${Math.random()*360|0},70%,60%)`;
     s.players[name]=s.players[name]||{score:0,color};
+    s.players[name].lastSeen=Date.now();
     if(teacher)s.teacherName=name;
+    if(s.setId){setSetId(s.setId);setIdRef.current=s.setId;}
     await wr(s);setPage("game");
+    prevRef.current={phase:s.phase,idx:s.currentIdx,round:s.round||0,players:Object.keys(s.players).length,winner:s.winner};
+    clearInterval(pollRef.current);
     pollRef.current=setInterval(async()=>{
       const l=await fbGet();
       if(l){setGs(l);setConnStatus("connected");}
       else setConnStatus("error");
     },800);
+    // 생존 신호
+    clearInterval(hbRef.current);
+    const beat=()=>fbPatch({[`players/${name}/lastSeen`]:Date.now()});
+    hbRef.current=setInterval(beat,HEARTBEAT_MS);
   },[wr]);
 
   const joinTeacher=useCallback(async()=>{
-    if(passIn!==T_PASS){setErr("선생님 비밀번호가 틀렸습니다");return;}
+    if(!T_PASSES.includes(passIn.trim())){setErr("선생님 비밀번호가 틀렸습니다");return;}
     await startSession("선생님",true);
   },[startSession,passIn]);
 
   const handleTeacherClick=useCallback(()=>{
-    setErr("");
+    setErr("");unlockAudio();
     if(!showPassInput){setShowPassInput(true);return;}
     joinTeacher();
   },[showPassInput,joinTeacher]);
@@ -257,36 +263,60 @@ export default function App(){
   const joinPlayer=useCallback(async()=>{
     const name=nameIn.trim();
     if(!name){setErr("닉네임을 입력해주세요");return;}
+    if(name.length>12){setErr("닉네임은 12자 이내로 입력해주세요");return;}
+    if(BAD_NAME.test(name)){setErr("닉네임에 . # $ [ ] / 기호는 쓸 수 없습니다");return;}
     if(name==="선생님"){setErr('"선생님"은 사용할 수 없는 닉네임입니다');return;}
     await startSession(name,false);
   },[nameIn,startSession]);
 
-  useEffect(()=>()=>{clearInterval(pollRef.current);clearInterval(timerRef.current);clearInterval(advRef.current);},[]);
+  useEffect(()=>()=>{clearInterval(pollRef.current);clearInterval(hbRef.current);clearInterval(timerRef.current);clearInterval(advRef.current);},[]);
+
+  const pickQuestions=()=>[...getSet(setIdRef.current).questions].sort(()=>Math.random()-0.5).slice(0,numQRef.current);
 
   const startGame=async()=>{
+    SFX.click();
     const cur=await fbGet();if(!cur)return;
-    const qs=[...DB].sort(()=>Math.random()-0.5).slice(0,numQRef.current);
-    await wr({...cur,questions:qs,currentIdx:0,phase:"active",clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null});
+    await wr({...cur,setId:setIdRef.current,questions:pickQuestions(),currentIdx:0,phase:"active",clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
   };
   const doReveal=async()=>{const cur=await fbGet();if(cur)await wr({...cur,phase:"revealed",winner:null,autoAdvAt:null});};
   const manualNext=async()=>{
     const cur=await fbGet();if(!cur)return;
     const next=cur.currentIdx+1;
     if(next>=cur.questions.length){await wr({...cur,phase:"finished",autoAdvAt:null});return;}
-    await wr({...cur,currentIdx:next,phase:"active",clicks:{},locked:{},winner:null,startTime:Date.now(),autoAdvAt:null});
+    await wr({...cur,currentIdx:next,phase:"active",clicks:{},locked:{},winner:null,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
   };
   const restart=async()=>{
+    SFX.click();
     const cur=await fbGet();if(!cur)return;
-    const qs=[...DB].sort(()=>Math.random()-0.5).slice(0,numQRef.current);
     const players={};Object.entries(cur.players||{}).forEach(([n,d])=>{players[n]={...d,score:0};});
-    await wr({...cur,questions:qs,currentIdx:0,phase:"active",players,clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null});
+    await wr({...cur,setId:setIdRef.current,questions:pickQuestions(),currentIdx:0,phase:"active",players,clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
+  };
+  const backToLobby=async()=>{
+    const cur=await fbGet();if(!cur)return;
+    const players={};Object.entries(cur.players||{}).forEach(([n,d])=>{players[n]={...d,score:0};});
+    await wr({...cur,questions:[],currentIdx:-1,phase:"waiting",players,clicks:{},locked:{},winner:null,startTime:null,autoAdvAt:null,lastBonus:null,winSec:null});
   };
   const resetAll=async()=>{
     if(!window.confirm("정말 전체 초기화할까요?\n모든 플레이어와 점수가 삭제됩니다.\n선생님도 다시 입장해야 합니다."))return;
-    const fresh={words:[],questions:[],currentIdx:-1,phase:"waiting",players:{},clicks:{},locked:{},winner:null,round:0,startTime:null,autoAdvAt:null,teacherName:null};
-    await wr(fresh);
-    clearInterval(pollRef.current);
+    await wr(freshState());
+    clearInterval(pollRef.current);clearInterval(hbRef.current);
     setPage("login");setMyName("");setNameIn("");setIsTeacher(false);setTeacherTaken(false);
+  };
+  const clearOffline=async()=>{
+    const cur=await fbGet();if(!cur)return;
+    const nowMs=Date.now();
+    const gone=Object.entries(cur.players||{}).filter(([n,d])=>n!=="선생님"&&n!==cur.teacherName&&!(d?.lastSeen&&nowMs-d.lastSeen<ONLINE_MS)).map(([n])=>n);
+    if(gone.length===0){alert("정리할 사람이 없어요. 모두 접속 중입니다.");return;}
+    if(!window.confirm(`접속이 끊긴 ${gone.length}명을 목록에서 제거할까요?
+(${gone.slice(0,8).join(", ")}${gone.length>8?" 외":""})`))return;
+    const players={...(cur.players||{})};gone.forEach(n=>delete players[n]);
+    await wr({...cur,players});
+  };
+  const kickPlayer=async name=>{
+    if(!window.confirm(`"${name}" 님을 목록에서 제거할까요?`))return;
+    const cur=await fbGet();if(!cur)return;
+    const players={...(cur.players||{})};delete players[name];
+    await wr({...cur,players});
   };
 
   const clickWord=async word=>{
@@ -294,15 +324,18 @@ export default function App(){
     if(!cur||cur.phase!=="active")return;
     const me=myRef.current;
     if(cur.clicks?.[me]||cur.locked?.[me])return;
-    if(Date.now()-cur.startTime>ROUND_SEC*1000)return;
+    const elapsed=Date.now()-cur.startTime;
+    if(elapsed>ROUND_SEC*1000)return;
     const ans=cur.questions?.[cur.currentIdx]?.a;
     const ok=word===ans;
     setFeedback(ok?"✅":"❌");setTimeout(()=>setFeedback(null),ok?ADV_DELAY:1000);
     cur.clicks=cur.clicks||{};cur.clicks[me]=word;
     if(ok){
-      const bonus=Math.max(10,100-Math.floor((Date.now()-cur.startTime)/1000)*1.5|0);
+      SFX.correct();
+      const bonus=pointsAt(elapsed);
       const snapIdx=cur.currentIdx;
       cur.winner=me;cur.phase="revealed";cur.autoAdvAt=Date.now()+ADV_DELAY;
+      cur.lastBonus=bonus;cur.winSec=Math.round(elapsed/100)/10;
       cur.players=cur.players||{};
       cur.players[me]=cur.players[me]||{score:0,color:"#fff"};
       cur.players[me].score=(cur.players[me].score||0)+bonus;
@@ -312,14 +345,16 @@ export default function App(){
         if(!latest||latest.currentIdx!==snapIdx||latest.phase!=="revealed")return;
         const next=snapIdx+1;
         if(next>=latest.questions.length){await wr({...latest,phase:"finished",autoAdvAt:null});return;}
-        await wr({...latest,currentIdx:next,phase:"active",clicks:{},locked:{},winner:null,startTime:Date.now(),autoAdvAt:null});
+        await wr({...latest,currentIdx:next,phase:"active",clicks:{},locked:{},winner:null,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
       },ADV_DELAY);
     } else {
+      SFX.wrong();
       cur.locked=cur.locked||{};cur.locked[me]=true;
-      // 참가자(선생님 제외) 전원이 오답이면 60초 기다리지 않고 즉시 정답 공개
       const tName=cur.teacherName;
-      const participants=Object.keys(cur.players||{}).filter(p=>p!==tName&&p!=="선생님");
-      const lockedStudents=Object.keys(cur.locked).filter(p=>p!==tName&&p!=="선생님");
+      // 접속 중(최근 생존 신호)인 학생만 참가자로 센다 — 나간 사람 때문에 공개가 안 되는 문제 방지
+      const nowMs=Date.now();
+      const participants=Object.entries(cur.players||{}).filter(([p,d])=>p!==tName&&p!=="선생님"&&d?.lastSeen&&nowMs-d.lastSeen<ONLINE_MS).map(([p])=>p);
+      const lockedStudents=participants.filter(p=>cur.locked[p]);
       if(participants.length>0&&lockedStudents.length>=participants.length){
         cur.phase="revealed";cur.winner=null;cur.autoAdvAt=null;
       }
@@ -327,15 +362,65 @@ export default function App(){
     }
   };
 
+  // ── 공통 파생값 ──
+  const players=gs?.players||{};
+  const teacherName=gs?.teacherName;
+  const isTeacherName=n=>n==="선생님"||n===teacherName;
+  const isOnline=d=>!!d?.lastSeen&&now-d.lastSeen<ONLINE_MS;
+  const studentEntries=Object.entries(players).filter(([n])=>!isTeacherName(n));
+  const onlineStudents=studentEntries.filter(([,d])=>isOnline(d)).length;
+  const sorted=[...studentEntries].sort(([,a],[,b])=>(b.score||0)-(a.score||0));
+  const curSet=getSet(curSetId);
+
+  // ── 테마 (플랫 인포그래픽) ──
+  const C={yellow:"#F4B942",teal:"#2FA79C",red:"#E0524D",dark:"#3B3F45",gray:"#8A9096",light:"#F4F5F2",line:"#E4E6E1",white:"#fff"};
+  const SET_COLOR={ai:C.teal,capital:C.yellow,proverb:C.red,idiom:C.dark,science:"#5B8DEF"};
+  const setColor=SET_COLOR[curSetId]||C.teal;
+  const FONT='"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif';
+  const card={background:C.white,borderRadius:"18px",boxShadow:"0 10px 30px rgba(59,63,69,0.08)",border:`1px solid ${C.line}`};
+  const stripe=<div style={{display:"flex",height:"6px",borderRadius:"6px",overflow:"hidden"}}>{[C.yellow,C.teal,C.red,C.dark].map(c=><div key={c} style={{flex:1,background:c}}/>)}</div>;
+
+  const RulesBox=({compact})=>{
+    const rows=[
+      [C.yellow,"1",<>가장 <b>먼저</b> 정답을 클릭한 <b>1명만</b> 점수를 얻어요</>],
+      [C.teal,"2",<><b>{MAX_PT}점</b>에서 시작해 1초에 1점씩 줄어요 (최소 <b>{MIN_PT}점</b>)</>],
+      [C.red,"3",<>오답을 누르면 이번 문제는 끝. 다음 문제에서 다시!</>],
+      [C.dark,"4",<>{ROUND_SEC}초 안에 아무도 못 맞히면 정답만 공개돼요</>],
+    ];
+    return(
+      <div style={{textAlign:"left"}}>
+        <div style={{color:C.gray,fontWeight:"800",fontSize:"11px",letterSpacing:"0.12em",marginBottom:compact?"6px":"10px"}}>SCORING RULES · 점수 규칙</div>
+        <div style={{display:"grid",gap:compact?"5px":"8px"}}>
+          {rows.map(([c,n,t])=>(
+            <div key={n} style={{display:"flex",alignItems:"center",gap:"10px",background:C.light,borderRadius:"10px",padding:compact?"6px 10px":"9px 12px"}}>
+              <span style={{width:compact?"20px":"24px",height:compact?"20px":"24px",borderRadius:"50%",background:c,color:"#fff",fontWeight:"900",fontSize:compact?"11px":"12px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</span>
+              <span style={{color:C.dark,fontSize:compact?"12px":"13px",lineHeight:1.4}}>{t}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const dotBg={backgroundColor:C.light,backgroundImage:`radial-gradient(${C.line} 1.2px, transparent 1.2px)`,backgroundSize:"22px 22px"};
+
   if(page==="login")return(
-    <div style={{height:"100vh",background:"linear-gradient(135deg,#0f172a,#1e1b4b)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif"}}>
-      <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(12px)",borderRadius:"24px",padding:"40px",width:"380px",border:"1px solid rgba(255,255,255,0.1)",textAlign:"center"}}>
-        <div style={{fontSize:"52px",marginBottom:"8px"}}>🔎</div>
-        <h1 style={{color:"#fff",margin:"0 0 4px",fontSize:"24px",fontWeight:"900"}}>50개의 단어 속에 정답을 찾아라</h1>
-        <p style={{color:"#64748b",margin:"0 0 8px",fontSize:"13px"}}>AI와 함께하는 단어 퀴즈 게임!</p>
-        <div style={{display:"inline-flex",gap:"6px",alignItems:"center",background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:"6px",padding:"3px 10px",marginBottom:"22px"}}>
-          <span style={{width:"7px",height:"7px",borderRadius:"50%",background:connStatus==="connected"?"#22c55e":connStatus==="error"?"#ef4444":"#f59e0b",display:"inline-block"}}/>
-          <span style={{color:connStatus==="connected"?"#22c55e":connStatus==="error"?"#ef4444":"#f59e0b",fontSize:"11px",fontWeight:"700"}}>
+    <div style={{minHeight:"100vh",...dotBg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FONT,padding:"16px",boxSizing:"border-box"}}>
+      <div style={{...card,padding:"30px 32px 26px",width:"420px",maxWidth:"100%",textAlign:"center",boxSizing:"border-box"}}>
+        {stripe}
+        <div style={{display:"flex",justifyContent:"center",gap:"8px",margin:"22px 0 14px"}}>
+          {[[C.yellow,"🔎"],[C.teal,"💡"],[C.red,"🏆"]].map(([c,e],i)=>(
+            <div key={i} style={{width:"46px",height:"46px",borderRadius:"14px",background:c,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",transform:i===1?"translateY(-6px)":"none",boxShadow:`0 8px 18px ${c}55`}}>{e}</div>
+          ))}
+        </div>
+        <h1 style={{color:C.dark,margin:"0 0 6px",fontSize:"23px",fontWeight:"900",letterSpacing:"-0.02em"}}>50개의 단어 속에 정답을 찾아라</h1>
+        <p style={{color:C.gray,margin:"0 0 10px",fontSize:"13px"}}>{QUESTION_SETS.length}가지 주제 · 실시간 단어 퀴즈</p>
+        <div style={{display:"flex",justifyContent:"center",gap:"6px",flexWrap:"wrap",marginBottom:"14px"}}>
+          {QUESTION_SETS.map(s=><span key={s.id} style={{fontSize:"11px",fontWeight:"700",color:"#fff",background:SET_COLOR[s.id],borderRadius:"999px",padding:"3px 9px"}}>{s.emoji} {s.name}</span>)}
+        </div>
+        <div style={{display:"inline-flex",gap:"6px",alignItems:"center",borderRadius:"999px",padding:"3px 10px",marginBottom:"20px",background:C.light}}>
+          <span style={{width:"7px",height:"7px",borderRadius:"50%",background:connStatus==="connected"?C.teal:connStatus==="error"?C.red:C.yellow,display:"inline-block"}}/>
+          <span style={{color:connStatus==="connected"?C.teal:connStatus==="error"?C.red:"#b8860b",fontSize:"11px",fontWeight:"800"}}>
             {connStatus==="connected"?"실시간 서버 연결됨":connStatus==="error"?"연결 오류":"연결 중..."}
           </span>
         </div>
@@ -343,49 +428,47 @@ export default function App(){
         {isTeacherUrl&&(
           <>
             <button onClick={handleTeacherClick}
-              style={{width:"100%",padding:"16px",borderRadius:"14px",marginBottom:"6px",background:teacherTaken?"rgba(245,158,11,0.08)":"linear-gradient(135deg,#f59e0b,#ef4444)",border:teacherTaken?"2px solid rgba(245,158,11,0.3)":"none",color:teacherTaken?"#78716c":"#fff",fontWeight:"900",cursor:"pointer",fontSize:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:"10px"}}>
+              style={{width:"100%",padding:"15px",borderRadius:"14px",marginBottom:"6px",background:teacherTaken&&!showPassInput?C.light:C.yellow,border:teacherTaken&&!showPassInput?`2px dashed ${C.yellow}`:"none",color:teacherTaken&&!showPassInput?"#a07a1a":"#3b2f00",fontWeight:"900",cursor:"pointer",fontSize:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",boxShadow:teacherTaken&&!showPassInput?"none":`0 8px 18px ${C.yellow}55`}}>
               <span style={{fontSize:"22px"}}>👩‍🏫</span>
-              <span>{teacherTaken?"선생님 (입장 중)":showPassInput?"비밀번호 확인 후 입장":"선생님으로 입장"}</span>
+              <span>{showPassInput?"비밀번호 확인 후 입장":teacherTaken?"선생님 (입장 중) — 권한 이어받기":"선생님으로 입장"}</span>
             </button>
-            {showPassInput&&!teacherTaken&&(
+            {showPassInput&&(
               <input type="password" autoFocus placeholder="선생님 비밀번호" value={passIn}
                 onChange={e=>{setPassIn(e.target.value);setErr("");}}
                 onKeyDown={e=>e.key==="Enter"&&joinTeacher()}
-                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:"1px solid rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.05)",color:"#fff",fontSize:"15px",boxSizing:"border-box",marginTop:"6px",outline:"none"}}/>
+                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`2px solid ${C.yellow}`,background:"#fff",color:C.dark,fontSize:"15px",boxSizing:"border-box",marginTop:"6px",outline:"none",fontFamily:FONT}}/>
             )}
             {teacherTaken?(
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",padding:"0 4px"}}>
-                <p style={{color:"#57534e",fontSize:"11px",margin:0,textAlign:"left"}}>※ 클릭하면 권한을 이어받습니다</p>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",padding:"0 4px"}}>
+                <p style={{color:C.gray,fontSize:"11px",margin:0,textAlign:"left"}}>※ 이미 선생님이 있어요. 비밀번호를 넣으면 권한을 이어받습니다</p>
                 <button onClick={releaseTeacher}
-                  style={{background:"none",border:"none",color:"#78716c",fontSize:"11px",cursor:"pointer",textDecoration:"underline",padding:"2px 4px"}}>
+                  style={{background:"none",border:"none",color:C.gray,fontSize:"11px",cursor:"pointer",textDecoration:"underline",padding:"2px 4px"}}>
                   슬롯 해제
                 </button>
               </div>
-            ):<div style={{height:"14px"}}/>}
-
-            <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"4px 0 16px"}}>
-              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
-              <span style={{color:"#334155",fontSize:"12px"}}>또는</span>
-              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+            ):<div style={{height:"12px"}}/>}
+            <div style={{display:"flex",alignItems:"center",gap:"10px",margin:"2px 0 14px"}}>
+              <div style={{flex:1,height:"1px",background:C.line}}/>
+              <span style={{color:C.gray,fontSize:"12px"}}>또는</span>
+              <div style={{flex:1,height:"1px",background:C.line}}/>
             </div>
           </>
         )}
 
-        <input type="text" placeholder="닉네임을 입력하세요" value={nameIn}
+        <input type="text" placeholder="닉네임을 입력하세요" value={nameIn} maxLength={12}
           onChange={e=>{setNameIn(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&joinPlayer()}
-          style={{width:"100%",padding:"13px 14px",borderRadius:"10px",border:"1px solid rgba(99,102,241,0.3)",background:"rgba(99,102,241,0.05)",color:"#fff",fontSize:"15px",boxSizing:"border-box",marginBottom:"10px",outline:"none"}}/>
-        {err&&<p style={{color:"#f87171",fontSize:"12px",margin:"0 0 8px",textAlign:"left"}}>{err}</p>}
+          style={{width:"100%",padding:"13px 14px",borderRadius:"10px",border:`2px solid ${C.line}`,background:"#fff",color:C.dark,fontSize:"15px",boxSizing:"border-box",marginBottom:"10px",outline:"none",fontFamily:FONT}}/>
+        {err&&<p style={{color:C.red,fontSize:"12px",margin:"0 0 8px",textAlign:"left",fontWeight:"700"}}>⚠ {err}</p>}
         <button onClick={joinPlayer}
-          style={{width:"100%",padding:"14px",borderRadius:"12px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",color:"#fff",fontSize:"16px",fontWeight:"900",cursor:"pointer"}}>
+          style={{width:"100%",padding:"14px",borderRadius:"12px",background:C.teal,border:"none",color:"#fff",fontSize:"16px",fontWeight:"900",cursor:"pointer",boxShadow:`0 8px 18px ${C.teal}55`}}>
           🎮 플레이어로 입장 →
         </button>
-        <p style={{color:"#1e293b",marginTop:"16px",fontSize:"11px"}}>💡 누구나 링크로 접속해서 함께 플레이!</p>
+        <div style={{marginTop:"18px"}}><RulesBox compact/></div>
+        <p style={{color:C.gray,fontSize:"11px",margin:"12px 0 0"}}>💡 누구나 링크로 접속해서 함께 플레이 · 🔊 입장하면 효과음이 나요</p>
       </div>
     </div>
   );
 
-  const players=gs?.players||{};
-  const sorted=Object.entries(players).sort(([,a],[,b])=>b.score-a.score);
   const phase=gs?.phase||"waiting";
   const qi=gs?.currentIdx??-1;
   const curQ=gs?.questions?.[qi];
@@ -394,93 +477,201 @@ export default function App(){
   const isLocked=gs?.locked?.[myName];
   const winner=gs?.winner;
   const timeExpired=phase==="active"&&timeLeft<=0;
-  const tc=timeLeft>30?"#22c55e":timeLeft>10?"#f59e0b":"#ef4444";
+  const tc=timeLeft>30?C.teal:timeLeft>10?C.yellow:C.red;
   const canClick=phase==="active"&&!myClicked&&!isLocked&&!timeExpired;
+  const nowPts=phase==="active"?pointsAt((ROUND_SEC-timeLeft)*1000):null;
+  const rankOf=name=>sorted.findIndex(([n])=>n===name);
+  const medal=i=>i===0?C.yellow:i===1?C.teal:i===2?C.red:C.gray;
+
+  const btn=(extra={})=>({padding:"10px 16px",borderRadius:"10px",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap",fontFamily:FONT,...extra});
+  const ghost=(extra={})=>btn({background:"#fff",border:`1.5px solid ${C.line}`,color:C.dark,...extra});
+  const chip=(color)=>({background:"#fff",borderRadius:"999px",padding:"4px 10px 4px 6px",border:`1px solid ${C.line}`,display:"flex",gap:"6px",alignItems:"center"});
 
   return(
-    <div style={{height:"100vh",background:"linear-gradient(135deg,#0f172a,#1e1b4b)",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden"}}>
-      <div style={{padding:"10px 16px",background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:"10px"}}>
-        <span style={{color:"#fff",fontWeight:"900",fontSize:"17px",whiteSpace:"nowrap"}}>🔎 단어찾기</span>
+    <div style={{height:"100vh",...dotBg,display:"flex",flexDirection:"column",fontFamily:FONT,overflow:"hidden"}}>
+      {/* ── 상단 바 ── */}
+      <div style={{padding:"10px 16px",background:"#fff",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"10px",boxShadow:"0 2px 10px rgba(0,0,0,0.03)"}}>
+        <span style={{display:"flex",alignItems:"center",gap:"8px",whiteSpace:"nowrap"}}>
+          <span style={{width:"32px",height:"32px",borderRadius:"10px",background:setColor,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"17px"}}>{curSet.emoji}</span>
+          <span style={{color:C.dark,fontWeight:"900",fontSize:"15px"}}>{curSet.name}</span>
+        </span>
         {phase==="active"&&(
-          <div style={{display:"flex",alignItems:"center",gap:"5px",background:"rgba(0,0,0,0.35)",borderRadius:"10px",padding:"6px 12px",border:`1px solid ${tc}55`,flexShrink:0}}>
-            <span style={{fontSize:"13px"}}>{timeExpired?"⌛":"⏱"}</span>
-            <span style={{color:tc,fontWeight:"900",fontSize:"22px",minWidth:"30px",textAlign:"center",lineHeight:1}}>{timeExpired?"0":timeLeft}</span>
+          <div style={{display:"flex",alignItems:"center",gap:"10px",background:tc,borderRadius:"12px",padding:"5px 14px",flexShrink:0,color:"#fff",boxShadow:`0 6px 14px ${tc}55`}}>
+            <span style={{fontWeight:"900",fontSize:"22px",minWidth:"30px",textAlign:"center",lineHeight:1}}>{timeExpired?"0":timeLeft}</span>
+            {!timeExpired&&<span style={{fontSize:"11px",fontWeight:"800",whiteSpace:"nowrap",borderLeft:"1px solid rgba(255,255,255,0.4)",paddingLeft:"10px",opacity:0.95}}>지금 맞히면 <b style={{fontSize:"15px"}}>+{nowPts}</b>점</span>}
           </div>
         )}
-        <div style={{flex:1,background:"rgba(255,255,255,0.04)",borderRadius:"10px",padding:"8px 14px",display:"flex",alignItems:"center",gap:"10px",overflow:"hidden",minHeight:"36px"}}>
-          {phase==="waiting"&&<span style={{color:"#475569",fontSize:"13px"}}>🕐 선생님이 게임을 시작하기를 기다리는 중...</span>}
+        <div style={{flex:1,background:C.light,borderRadius:"12px",padding:"8px 14px",display:"flex",alignItems:"center",gap:"10px",overflow:"hidden",minHeight:"36px"}}>
+          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>🕐 선생님이 게임을 시작하기를 기다리는 중...</span>}
           {(phase==="active"||phase==="revealed")&&curQ&&<>
-            <span style={{color:"#6366f1",fontSize:"12px",fontWeight:"800",whiteSpace:"nowrap",flexShrink:0}}>{qi+1}/{totalQ}</span>
-            <span style={{color:"#fbbf24",fontWeight:"800",fontSize:"14px"}}>{curQ.q}</span>
-            {phase==="revealed"&&<span style={{color:"#34d399",fontWeight:"900",fontSize:"14px",marginLeft:"auto",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>}
+            <span style={{color:"#fff",background:setColor,borderRadius:"6px",padding:"2px 7px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap",flexShrink:0}}>{qi+1}/{totalQ}</span>
+            <span style={{color:C.dark,fontWeight:"800",fontSize:"14px"}}>{curQ.q}</span>
+            {phase==="revealed"&&<span style={{color:C.teal,fontWeight:"900",fontSize:"14px",marginLeft:"auto",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>}
           </>}
-          {phase==="finished"&&<span style={{color:"#f59e0b",fontWeight:"900",fontSize:"15px"}}>🏁 게임 종료!</span>}
+          {phase==="finished"&&<span style={{color:C.red,fontWeight:"900",fontSize:"15px"}}>🏁 게임 종료!</span>}
         </div>
-        <div style={{display:"flex",gap:"5px",flexShrink:0}}>
-          {sorted.slice(0,6).map(([n,d],ri)=>(
-            <div key={n} style={{background:"rgba(255,255,255,0.05)",borderRadius:"8px",padding:"3px 9px",border:`1px solid ${d.color}55`,display:"flex",gap:"5px",alignItems:"center"}}>
-              {ri===0&&<span style={{fontSize:"10px"}}>👑</span>}
-              <span style={{color:"#e2e8f0",fontSize:"11px",maxWidth:"52px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</span>
-              <span style={{color:d.color,fontWeight:"900",fontSize:"12px"}}>{d.score}</span>
+        <div style={{display:"flex",gap:"6px",flexShrink:0,alignItems:"center"}}>
+          {sorted.slice(0,3).map(([n,d],ri)=>(
+            <div key={n} style={chip()}>
+              <span style={{width:"20px",height:"20px",borderRadius:"50%",background:medal(ri),color:"#fff",fontSize:"10px",fontWeight:"900",display:"flex",alignItems:"center",justifyContent:"center"}}>{ri+1}</span>
+              <span style={{color:C.dark,fontSize:"11px",maxWidth:"60px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:"700"}}>{n}</span>
+              <span style={{color:medal(ri),fontWeight:"900",fontSize:"12px"}}>{d.score||0}</span>
             </div>
           ))}
+          <button onClick={()=>{setShowPlayers(v=>!v);SFX.click();}} title="참가자 전체 보기"
+            style={{background:showPlayers?C.dark:C.teal,border:"none",color:"#fff",fontSize:"12px",fontWeight:"900",padding:"7px 12px",borderRadius:"10px",cursor:"pointer",whiteSpace:"nowrap",display:"flex",gap:"6px",alignItems:"center",fontFamily:FONT}}>
+            👥 <span style={{fontSize:"14px"}}>{onlineStudents}</span>명
+            {studentEntries.length>onlineStudents&&<span style={{opacity:0.7,fontWeight:"600"}}>/{studentEntries.length}</span>}
+          </button>
+          <button onClick={toggleMute} title={muted?"소리 켜기":"소리 끄기"}
+            style={{background:"#fff",border:`1.5px solid ${C.line}`,color:C.dark,fontSize:"15px",padding:"4px 9px",borderRadius:"10px",cursor:"pointer",lineHeight:1.4}}>
+            {muted?"🔇":"🔊"}
+          </button>
         </div>
-        {isTeacher&&<span style={{background:"rgba(245,158,11,0.15)",border:"1px solid #f59e0b44",color:"#f59e0b",fontSize:"11px",fontWeight:"800",padding:"3px 9px",borderRadius:"6px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
+        {isTeacher&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
       </div>
 
+      {/* ── 단어 영역 ── */}
       <div ref={areaRef} style={{flex:1,position:"relative",overflow:"hidden"}}>
         {feedback&&<div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",fontSize:"80px",zIndex:60,animation:"pop 1.3s forwards",pointerEvents:"none"}}>{feedback}</div>}
 
-        {phase==="revealed"&&winner&&(
-          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:40,background:"rgba(0,0,0,0.88)",borderRadius:"20px",padding:"24px 44px",textAlign:"center",border:"2px solid #22c55e55",boxShadow:"0 0 40px rgba(34,197,94,0.3)"}}>
-            <div style={{fontSize:"40px",marginBottom:"8px"}}>🎉</div>
-            <div style={{color:"#94a3b8",fontSize:"13px",marginBottom:"4px"}}>정답!</div>
-            <div style={{color:"#fff",fontWeight:"900",fontSize:"22px",marginBottom:"8px"}}>{winner}</div>
-            <div style={{background:"rgba(34,197,94,0.2)",border:"1px solid #22c55e",borderRadius:"10px",padding:"8px 20px",marginBottom:"12px"}}>
-              <span style={{color:"#34d399",fontWeight:"900",fontSize:"24px"}}>{curQ?.a}</span>
+        {/* 대기실 */}
+        {phase==="waiting"&&(
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",zIndex:35,background:"rgba(244,245,242,0.7)",backdropFilter:"blur(2px)",padding:"16px",boxSizing:"border-box"}}>
+            <div style={{...card,padding:"22px 26px",width:"640px",maxWidth:"100%",maxHeight:"100%",overflow:"auto",boxSizing:"border-box"}}>
+              {stripe}
+              <div style={{display:"flex",alignItems:"center",gap:"14px",margin:"16px 0 14px",flexWrap:"wrap"}}>
+                <div style={{width:"46px",height:"46px",borderRadius:"14px",background:setColor,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"24px"}}>{curSet.emoji}</div>
+                <div style={{flex:1,minWidth:"180px"}}>
+                  <div style={{color:C.gray,fontSize:"11px",fontWeight:"800",letterSpacing:"0.12em"}}>WAITING ROOM · 대기실</div>
+                  <div style={{color:C.dark,fontWeight:"900",fontSize:"18px"}}>{curSet.name} <span style={{color:C.gray,fontSize:"12px",fontWeight:"600"}}>· {curSet.desc}</span></div>
+                </div>
+                <div style={{background:C.yellow,borderRadius:"14px",padding:"8px 18px",textAlign:"center",color:"#3b2f00"}}>
+                  <div style={{fontWeight:"900",fontSize:"26px",lineHeight:1}}>{onlineStudents}</div>
+                  <div style={{fontSize:"11px",fontWeight:"800"}}>명 접속 중</div>
+                </div>
+              </div>
+              {studentEntries.length===0?(
+                <div style={{color:C.gray,fontSize:"13px",textAlign:"center",padding:"18px 0",background:C.light,borderRadius:"12px",marginBottom:"14px"}}>아직 입장한 학생이 없어요. 학생 입장 링크를 공유해 주세요.</div>
+              ):(
+                <div style={{display:"flex",flexWrap:"wrap",gap:"8px",marginBottom:"16px"}}>
+                  {studentEntries.map(([n,d])=>{
+                    const on=isOnline(d);
+                    return(
+                      <div key={n} style={{display:"flex",alignItems:"center",gap:"6px",background:on?"#fff":C.light,border:`1.5px solid ${on?d.color:C.line}`,borderRadius:"999px",padding:"5px 12px 5px 8px",opacity:on?1:0.55}}>
+                        <span style={{width:"10px",height:"10px",borderRadius:"50%",background:on?d.color:C.gray,display:"inline-block"}}/>
+                        <span style={{color:C.dark,fontWeight:n===myName?"900":"600",fontSize:"13px"}}>{n}{n===myName&&" (나)"}</span>
+                        {!on&&<span style={{color:C.gray,fontSize:"10px"}}>나감?</span>}
+                        {isTeacher&&<button onClick={()=>kickPlayer(n)} title="제거" style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"12px",padding:"0 2px",lineHeight:1}}>✕</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <RulesBox/>
+              <div style={{display:"flex",alignItems:"center",marginTop:"12px",gap:"8px"}}>
+                {isTeacher&&studentEntries.length>onlineStudents&&(
+                  <button onClick={clearOffline} style={ghost({color:C.red,border:`1.5px solid ${C.red}66`,fontSize:"11px",padding:"6px 10px"})}>
+                    🧹 나간 사람 {studentEntries.length-onlineStudents}명 정리
+                  </button>
+                )}
+                {teacherName&&<span style={{color:C.gray,fontSize:"11px",marginLeft:"auto"}}>👩‍🏫 선생님 입장 완료</span>}
+              </div>
             </div>
-            {advCnt>0&&<div style={{color:"#475569",fontSize:"12px"}}>{advCnt}초 후 다음 문제...</div>}
+          </div>
+        )}
+
+        {phase==="revealed"&&winner&&(
+          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:40,...card,padding:"0 0 22px",textAlign:"center",minWidth:"280px",boxShadow:"0 20px 50px rgba(59,63,69,0.18)",overflow:"hidden"}}>
+            <div style={{background:C.teal,color:"#fff",padding:"12px",fontWeight:"900",fontSize:"13px",letterSpacing:"0.08em"}}>🎉 가장 먼저 정답!</div>
+            <div style={{color:C.dark,fontWeight:"900",fontSize:"24px",margin:"16px 0 8px"}}>{winner}</div>
+            <div style={{display:"inline-block",background:C.light,border:`2px solid ${C.teal}`,borderRadius:"12px",padding:"8px 22px",marginBottom:"10px"}}>
+              <span style={{color:C.teal,fontWeight:"900",fontSize:"24px"}}>{curQ?.a}</span>
+            </div>
+            {gs?.lastBonus!=null&&(
+              <div style={{color:C.red,fontWeight:"900",fontSize:"22px",marginBottom:"6px"}}>
+                +{gs.lastBonus}점 <span style={{color:C.gray,fontSize:"12px",fontWeight:"600"}}>({gs.winSec}초 만에!)</span>
+              </div>
+            )}
+            {advCnt>0&&<div style={{color:C.gray,fontSize:"12px"}}>{advCnt}초 후 다음 문제...</div>}
           </div>
         )}
 
         {phase==="revealed"&&!winner&&(
-          <div style={{position:"absolute",top:"16px",left:"50%",transform:"translateX(-50%)",zIndex:40,background:"rgba(0,0,0,0.8)",borderRadius:"14px",padding:"12px 28px",border:"1px solid #ef444455",textAlign:"center"}}>
-            <div style={{color:"#f87171",fontWeight:"900",fontSize:"15px",marginBottom:"4px"}}>⌛ 시간 초과!</div>
-            <div style={{color:"#94a3b8",fontSize:"13px"}}>정답: <strong style={{color:"#fff",fontSize:"16px"}}>{curQ?.a}</strong></div>
+          <div style={{position:"absolute",top:"16px",left:"50%",transform:"translateX(-50%)",zIndex:40,...card,padding:"12px 24px",textAlign:"center",borderTop:`5px solid ${C.red}`}}>
+            <div style={{color:C.red,fontWeight:"900",fontSize:"15px",marginBottom:"4px"}}>⌛ 아무도 못 맞혔어요!</div>
+            <div style={{color:C.gray,fontSize:"13px"}}>정답: <strong style={{color:C.dark,fontSize:"16px"}}>{curQ?.a}</strong> · 이번 문제는 점수 없음</div>
           </div>
         )}
 
         {phase==="finished"&&(
-          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",zIndex:30,background:"rgba(0,0,0,0.78)",flexDirection:"column",gap:"10px"}}>
-            <div style={{fontSize:"44px"}}>🏆</div>
-            <h2 style={{color:"#f59e0b",fontSize:"22px",fontWeight:"900",margin:"0 0 8px"}}>최종 순위</h2>
-            {sorted.slice(0,8).map(([n,d],i)=>(
-              <div key={n} style={{display:"flex",gap:"14px",alignItems:"center",background:"rgba(255,255,255,0.05)",borderRadius:"10px",padding:"8px 24px",minWidth:"230px",border:`1px solid ${d.color}44`}}>
-                <span style={{fontSize:"16px"}}>{["🥇","🥈","🥉"][i]||`${i+1}.`}</span>
-                <span style={{color:"#fff",fontWeight:"700",flex:1}}>{n}</span>
-                <span style={{color:d.color,fontWeight:"900",fontSize:"18px"}}>{d.score}점</span>
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",zIndex:30,background:"rgba(244,245,242,0.75)",backdropFilter:"blur(2px)",padding:"16px",boxSizing:"border-box"}}>
+            <div style={{...card,display:"flex",flexDirection:"column",alignItems:"center",gap:"8px",maxHeight:"100%",width:"400px",maxWidth:"100%",padding:"22px 22px 18px",boxSizing:"border-box"}}>
+              {stripe}
+              <div style={{fontSize:"40px",marginTop:"8px"}}>🏆</div>
+              <div style={{color:C.gray,fontSize:"11px",fontWeight:"800",letterSpacing:"0.12em"}}>FINAL RANKING</div>
+              <h2 style={{color:C.dark,fontSize:"22px",fontWeight:"900",margin:"0"}}>최종 순위</h2>
+              <div style={{color:C.gray,fontSize:"12px",marginBottom:"6px"}}>{curSet.emoji} {curSet.name} · {totalQ}문제 · 참가 {studentEntries.length}명</div>
+              <div style={{overflow:"auto",width:"100%",display:"flex",flexDirection:"column",gap:"6px",padding:"2px"}}>
+                {sorted.map(([n,d],i)=>(
+                  <div key={n} style={{display:"flex",gap:"12px",alignItems:"center",background:n===myName?"#FFF7E0":C.light,borderRadius:"12px",padding:"8px 14px",borderLeft:`5px solid ${medal(i)}`}}>
+                    <span style={{width:"26px",height:"26px",borderRadius:"50%",background:medal(i),color:"#fff",fontWeight:"900",fontSize:"12px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
+                    <span style={{color:C.dark,fontWeight:"800",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}{n===myName&&" (나)"}</span>
+                    <span style={{color:medal(i),fontWeight:"900",fontSize:"18px"}}>{d.score||0}<span style={{fontSize:"11px",color:C.gray}}>점</span></span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         )}
 
-        {items.map((it,idx)=>{
+        {/* 참가자 전체 패널 */}
+        {showPlayers&&(
+          <div style={{position:"absolute",top:0,right:0,bottom:0,width:"270px",maxWidth:"80%",zIndex:50,background:"#fff",borderLeft:`1px solid ${C.line}`,display:"flex",flexDirection:"column",boxShadow:"-12px 0 30px rgba(59,63,69,0.1)"}}>
+            <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"8px"}}>
+              <span style={{color:C.dark,fontWeight:"900",fontSize:"14px",flex:1}}>👥 참가자 {studentEntries.length}명</span>
+              <span style={{color:C.teal,fontSize:"11px",fontWeight:"800"}}>● {onlineStudents} 접속</span>
+              <button onClick={()=>setShowPlayers(false)} style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"16px",padding:"0 2px"}}>✕</button>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:"8px"}}>
+              {sorted.length===0&&<div style={{color:C.gray,fontSize:"12px",textAlign:"center",padding:"20px 0"}}>아직 참가자가 없어요</div>}
+              {sorted.map(([n,d],i)=>{
+                const on=isOnline(d);
+                return(
+                  <div key={n} style={{display:"flex",alignItems:"center",gap:"8px",padding:"7px 8px",borderRadius:"10px",background:n===myName?"#FFF7E0":"transparent",opacity:on?1:0.5,marginBottom:"2px"}}>
+                    <span style={{width:"20px",height:"20px",borderRadius:"50%",background:i<3?medal(i):C.light,color:i<3?"#fff":C.gray,fontSize:"10px",fontWeight:"900",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
+                    <span style={{width:"8px",height:"8px",borderRadius:"50%",background:on?d.color:C.gray,display:"inline-block",flexShrink:0}}/>
+                    <span style={{color:C.dark,fontSize:"13px",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:n===myName?"900":"600"}}>{n}{n===myName&&" (나)"}</span>
+                    {!on&&<span style={{color:C.gray,fontSize:"10px"}}>나감?</span>}
+                    <span style={{color:C.dark,fontWeight:"900",fontSize:"13px"}}>{d.score||0}</span>
+                    {isTeacher&&<button onClick={()=>kickPlayer(n)} title="제거" style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"12px",padding:"0 2px"}}>✕</button>}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{padding:"8px 12px",borderTop:`1px solid ${C.line}`,color:C.gray,fontSize:"10.5px",lineHeight:1.5,background:C.light}}>
+              ● 최근 30초 안에 신호가 온 사람 · 회색은 창을 닫았거나 연결이 끊긴 사람
+            </div>
+          </div>
+        )}
+
+        {items.map(it=>{
           const showDots=phase==="revealed"||phase==="finished";
           const clickers=showDots?Object.entries(gs?.clicks||{}).filter(([,w])=>w===it.word):[];
           const isMine=myClicked===it.word;
           const myWrong=isMine&&isLocked;
           const isAns=curQ&&it.word===curQ.a;
           const revealed=phase==="revealed";
-          let bg="rgba(15,23,42,0.9)",brd="1px solid rgba(99,102,241,0.2)",col="#94a3b8",glow="none",sc="1";
-          if(myWrong){bg="rgba(239,68,68,0.2)";brd="1.5px solid #ef4444";col="#fca5a5";}
-          if(revealed&&isAns){bg="rgba(34,197,94,0.35)";brd="2px solid #22c55e";col="#fff";glow="0 0 20px rgba(34,197,94,0.5)";sc="1.1";}
+          let bg="#fff",brd=`1.5px solid ${C.line}`,col=C.dark,glow="0 2px 6px rgba(59,63,69,0.06)",sc="1";
+          if(myWrong){bg="#FDECEB";brd=`1.5px solid ${C.red}`;col=C.red;}
+          if(revealed&&isAns){bg=C.teal;brd=`1.5px solid ${C.teal}`;col="#fff";glow=`0 8px 22px ${C.teal}66`;sc="1.12";}
           return(
-            <div key={idx} onClick={()=>canClick&&clickWord(it.word)}
-              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:"8px",padding:"6px 12px",fontSize:"13px",fontWeight:"700",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
+            <div key={it.word} onClick={()=>canClick&&clickWord(it.word)} className={canClick?"wd":""}
+              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:"10px",padding:"6px 12px",fontSize:"13px",fontWeight:"800",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
               {it.word}
               {showDots&&clickers.length>0&&(
                 <span style={{display:"flex",gap:"2px",marginLeft:"3px"}}>
-                  {clickers.map(([p])=><span key={p} title={p} style={{width:"7px",height:"7px",borderRadius:"50%",background:players[p]?.color||"#6366f1",display:"inline-block"}}/>)}
+                  {clickers.map(([p])=><span key={p} title={p} style={{width:"7px",height:"7px",borderRadius:"50%",background:players[p]?.color||C.gray,display:"inline-block",border:"1px solid #fff"}}/>)}
                 </span>
               )}
             </div>
@@ -488,74 +679,85 @@ export default function App(){
         })}
       </div>
 
+      {/* ── 하단 바 ── */}
       {isTeacher?(
-        <div style={{padding:"12px 16px",background:"rgba(0,0,0,0.65)",borderTop:"2px solid rgba(245,158,11,0.25)"}}>
+        <div style={{padding:"12px 16px",background:"#fff",borderTop:`4px solid ${C.yellow}`}}>
           {curQ&&(phase==="active"||phase==="revealed")&&(
-            <div style={{background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.28)",borderRadius:"10px",padding:"9px 16px",marginBottom:"10px",display:"flex",alignItems:"center",gap:"14px",flexWrap:"wrap"}}>
-              <span style={{color:"#f59e0b",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap"}}>👩‍🏫 선생님 전용</span>
-              <span style={{color:"#fde68a",fontSize:"14px",flex:1}}>{curQ.q}</span>
-              <span style={{color:"#34d399",fontWeight:"900",fontSize:"16px",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>
+            <div style={{background:"#FFF7E0",borderRadius:"12px",padding:"9px 16px",marginBottom:"10px",display:"flex",alignItems:"center",gap:"14px",flexWrap:"wrap"}}>
+              <span style={{color:"#3b2f00",background:C.yellow,borderRadius:"6px",padding:"2px 8px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap"}}>👩‍🏫 선생님 전용</span>
+              <span style={{color:C.dark,fontSize:"14px",flex:1}}>{curQ.q}</span>
+              <span style={{color:C.teal,fontWeight:"900",fontSize:"16px",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>
+            </div>
+          )}
+          {(phase==="waiting"||phase==="finished")&&(
+            <div style={{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",marginBottom:"10px"}}>
+              <span style={{color:C.gray,fontSize:"12px",fontWeight:"800",marginRight:"4px"}}>문제 세트</span>
+              {QUESTION_SETS.map(s=>{
+                const on=s.id===setId;const c=SET_COLOR[s.id];
+                return(
+                  <button key={s.id} onClick={()=>{setSetId(s.id);SFX.click();}} title={s.desc}
+                    style={{padding:"7px 13px",borderRadius:"999px",border:`1.5px solid ${on?c:C.line}`,background:on?c:"#fff",color:on?"#fff":C.dark,fontWeight:"800",fontSize:"12.5px",cursor:"pointer",whiteSpace:"nowrap",fontFamily:FONT,boxShadow:on?`0 6px 14px ${c}55`:"none"}}>
+                    {s.emoji} {s.name}
+                  </button>
+                );
+              })}
+              <span style={{color:C.gray,fontSize:"11px",marginLeft:"6px"}}>{getSet(setId).desc}</span>
             </div>
           )}
           <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
-            <div style={{display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",borderRadius:"8px",padding:"8px 14px",border:"1px solid rgba(255,255,255,0.1)"}}>
-              <span style={{color:"#94a3b8",fontSize:"13px",whiteSpace:"nowrap"}}>문제 수:</span>
+            <div style={{display:"flex",alignItems:"center",gap:"8px",background:C.light,borderRadius:"10px",padding:"7px 12px"}}>
+              <span style={{color:C.gray,fontSize:"12px",fontWeight:"800",whiteSpace:"nowrap"}}>문제 수</span>
               <input type="number" min="1" max="50" value={numQ} onChange={e=>setNumQ(Math.min(50,Math.max(1,+e.target.value||1)))}
-                style={{width:"52px",padding:"4px 8px",borderRadius:"6px",border:"1px solid rgba(99,102,241,0.4)",background:"rgba(99,102,241,0.1)",color:"#a5b4fc",fontSize:"15px",fontWeight:"900",outline:"none",textAlign:"center"}}/>
-              <span style={{color:"#475569",fontSize:"12px"}}>/ 50</span>
+                style={{width:"52px",padding:"4px 8px",borderRadius:"8px",border:`1.5px solid ${C.line}`,background:"#fff",color:C.dark,fontSize:"15px",fontWeight:"900",outline:"none",textAlign:"center",fontFamily:FONT}}/>
+              <span style={{color:C.gray,fontSize:"12px"}}>/ 50</span>
             </div>
             {(phase==="waiting"||phase==="finished")&&(
               <button onClick={phase==="finished"?restart:startGame}
-                style={{padding:"10px 22px",borderRadius:"8px",background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"14px",whiteSpace:"nowrap"}}>
-                {phase==="finished"?"🔄 재시작":"▶ 게임 시작!"}
+                style={btn({padding:"11px 24px",background:C.red,fontSize:"14px",boxShadow:`0 8px 18px ${C.red}55`})}>
+                {phase==="finished"?"🔄 같은 멤버로 다시 시작":"▶ 게임 시작!"}
               </button>
+            )}
+            {phase==="finished"&&(
+              <button onClick={backToLobby} style={ghost()}>🚪 대기실로</button>
             )}
             {phase==="active"&&timeExpired&&(
-              <button onClick={doReveal}
-                style={{padding:"10px 18px",borderRadius:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid #ef4444",color:"#fca5a5",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap"}}>
-                ⌛ 시간 초과 — 정답 공개
-              </button>
+              <button onClick={doReveal} style={btn({background:C.red})}>⌛ 시간 초과 — 정답 공개</button>
             )}
             {phase==="revealed"&&!winner&&(
-              <button onClick={manualNext}
-                style={{padding:"10px 18px",borderRadius:"8px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap"}}>
+              <button onClick={manualNext} style={btn({background:C.teal})}>
                 ➡ 다음 문제 {qi+1<totalQ?`(${qi+2}/${totalQ})`:"(마지막)"}
               </button>
             )}
             {(phase==="active"||phase==="revealed")&&(
-              <button onClick={restart}
-                style={{padding:"10px 16px",borderRadius:"8px",background:"rgba(239,68,68,0.08)",border:"1px solid #ef444430",color:"#ef4444",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap"}}>
-                🔄 재시작
-              </button>
+              <button onClick={restart} style={ghost({color:C.red,border:`1.5px solid ${C.red}66`})}>🔄 재시작</button>
             )}
-            <button onClick={copyStudentUrl}
-              style={{padding:"10px 14px",borderRadius:"8px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap",marginLeft:"auto"}}>
-              📋 학생 입장 링크 복사
-            </button>
-            <button onClick={resetAll}
-              style={{padding:"10px 14px",borderRadius:"8px",background:"rgba(120,113,108,0.08)",border:"1px solid rgba(120,113,108,0.3)",color:"#a8a29e",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap"}}>
-              🗑 전체 초기화
-            </button>
+            <button onClick={copyStudentUrl} style={btn({background:C.dark,marginLeft:"auto"})}>📋 학생 입장 링크 복사</button>
+            <button onClick={resetAll} style={ghost({color:C.gray})}>🗑 전체 초기화</button>
           </div>
         </div>
       ):(
-        <div style={{padding:"10px 16px",background:"rgba(0,0,0,0.5)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",gap:"10px",minHeight:"46px"}}>
-          <span style={{background:"rgba(99,102,241,0.15)",border:"1px solid #6366f144",color:"#a5b4fc",fontSize:"11px",fontWeight:"900",padding:"3px 10px",borderRadius:"6px",flexShrink:0}}>🎮 플레이어</span>
-          {phase==="waiting"&&<span style={{color:"#475569",fontSize:"13px"}}>선생님이 게임을 시작하기를 기다리는 중...</span>}
-          {phase==="active"&&!myClicked&&!isLocked&&!timeExpired&&<span style={{color:"#fbbf24",fontSize:"13px",fontWeight:"700"}}>👆 정답이라고 생각하는 단어를 클릭하세요!</span>}
-          {phase==="active"&&isLocked&&<span style={{color:"#f87171",fontSize:"13px",fontWeight:"700"}}>🚫 오답! 이번 문제 참여 불가</span>}
-          {phase==="active"&&myClicked&&!isLocked&&<span style={{color:"#94a3b8",fontSize:"13px"}}>⏳ 다른 플레이어를 기다리는 중...</span>}
-          {phase==="active"&&timeExpired&&!isLocked&&!myClicked&&<span style={{color:"#94a3b8",fontSize:"13px"}}>⌛ 시간 초과! 선생님이 정답을 공개합니다...</span>}
-          {phase==="revealed"&&winner===myName&&<span style={{color:"#34d399",fontSize:"14px",fontWeight:"900"}}>🎉 정답! 1등!</span>}
-          {phase==="revealed"&&winner&&winner!==myName&&<span style={{color:"#94a3b8",fontSize:"13px"}}>👏 {winner}님이 정답!</span>}
-          {phase==="revealed"&&!winner&&<span style={{color:"#94a3b8",fontSize:"13px"}}>⌛ 시간 초과! 정답을 확인하세요.</span>}
-          {phase==="finished"&&<span style={{color:"#f59e0b",fontSize:"13px",fontWeight:"700"}}>🏁 게임 종료! 최종 순위를 확인하세요!</span>}
-          <span style={{color:"#334155",fontSize:"12px",marginLeft:"auto",whiteSpace:"nowrap"}}>{myName}</span>
+        <div style={{padding:"10px 16px",background:"#fff",borderTop:`4px solid ${C.teal}`,display:"flex",alignItems:"center",gap:"10px",minHeight:"46px"}}>
+          <span style={{background:C.teal,color:"#fff",fontSize:"11px",fontWeight:"900",padding:"4px 10px",borderRadius:"8px",flexShrink:0}}>🎮 플레이어</span>
+          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>선생님이 게임을 시작하기를 기다리는 중...</span>}
+          {phase==="active"&&!myClicked&&!isLocked&&!timeExpired&&<span style={{color:C.dark,fontSize:"13px",fontWeight:"800"}}>👆 정답이라고 생각하는 단어를 클릭하세요! <span style={{color:C.gray,fontWeight:"600"}}>(빠를수록 높은 점수)</span></span>}
+          {phase==="active"&&isLocked&&<span style={{color:C.red,fontSize:"13px",fontWeight:"800"}}>🚫 오답! 이번 문제 참여 불가 · 다음 문제에서 만회하세요</span>}
+          {phase==="active"&&myClicked&&!isLocked&&<span style={{color:C.gray,fontSize:"13px"}}>⏳ 다른 플레이어를 기다리는 중...</span>}
+          {phase==="active"&&timeExpired&&!isLocked&&!myClicked&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 시간 초과! 선생님이 정답을 공개합니다...</span>}
+          {phase==="revealed"&&winner===myName&&<span style={{color:C.teal,fontSize:"14px",fontWeight:"900"}}>🎉 정답! +{gs?.lastBonus}점 획득!</span>}
+          {phase==="revealed"&&winner&&winner!==myName&&<span style={{color:C.gray,fontSize:"13px"}}>👏 {winner}님이 먼저 맞혔어요 (+{gs?.lastBonus}점)</span>}
+          {phase==="revealed"&&!winner&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 아무도 못 맞혔어요. 정답을 확인하세요.</span>}
+          {phase==="finished"&&<span style={{color:C.red,fontSize:"13px",fontWeight:"800"}}>🏁 게임 종료! 최종 순위를 확인하세요!</span>}
+          <span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center",whiteSpace:"nowrap"}}>
+            {players[myName]&&<span style={{background:C.light,borderRadius:"999px",padding:"4px 12px",color:C.dark,fontSize:"12px",fontWeight:"800"}}>내 점수 <b style={{color:C.red,fontSize:"14px"}}>{players[myName].score||0}</b>점{rankOf(myName)>=0&&<span style={{color:C.gray,fontWeight:"600"}}> · {rankOf(myName)+1}위</span>}</span>}
+            <span style={{color:C.gray,fontSize:"12px"}}>{myName}</span>
+          </span>
         </div>
       )}
 
       <style>{`
         @keyframes pop{0%{opacity:1;transform:translate(-50%,-50%) scale(0.3);}55%{opacity:1;transform:translate(-50%,-50%) scale(1.5);}100%{opacity:0;transform:translate(-50%,-50%) scale(1.7);}}
+        .wd:hover{transform:translateY(-2px) scale(1.04)!important;box-shadow:0 8px 18px rgba(59,63,69,0.14)!important;border-color:${C.teal}!important;}
+        input::placeholder{color:#b0b5ba;}
       `}</style>
     </div>
   );
