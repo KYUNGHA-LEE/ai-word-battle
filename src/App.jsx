@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { QUESTION_SETS, DEFAULT_SET_ID, getSet, wordsOf } from "./questionSets.js";
 import { SFX, unlock as unlockAudio, isMuted, setMuted as persistMuted } from "./sounds.js";
+import QRCode from "qrcode";
+
+const STUDENT_URL = "https://ai-word-battle.vercel.app/";
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDn7u-BWzOLhM_8Ku8KiPH11TeMhQlC1lI",
@@ -30,15 +33,19 @@ const ONLINE_MS = 30000;
 
 const BAD_NAME = /[.#$\[\]\/]/;
 
-function place(words, W, H){
-  const items=[];const CH=13,PX=13,PY=7,G=9;
+function place(words, W, H, fs=13){
+  const items=[];const CH=fs,PX=Math.round(fs*0.9),PY=Math.round(fs*0.5),G=Math.round(fs*0.6);
+  const free=(x,y,w,h,g)=>!items.some(it=>x<it.x+it.w+g&&x+w+g>it.x&&y<it.y+it.h+g&&y+h+g>it.y);
   for(const word of words){
-    const w=word.length*(CH*0.78)+PX*2,h=CH+PY*2;let p=null;
-    for(let i=0;i<500;i++){
-      const x=G+Math.random()*(W-w-G*2),y=G+Math.random()*(H-h-G*2);
-      if(!items.some(it=>x<it.x+it.w+G&&x+w+G>it.x&&y<it.y+it.h+G&&y+h+G>it.y)){p={x,y,w,h};break;}
+    const w=word.length*(CH*0.95)+PX*2,h=CH+PY*2;let p=null;
+    for(let i=0;i<400&&!p;i++){
+      const x=G+Math.random()*Math.max(1,W-w-G*2),y=G+Math.random()*Math.max(1,H-h-G*2);
+      if(free(x,y,w,h,G))p={x,y,w,h};
     }
-    if(p)items.push({word,...p});
+    // 빈자리를 못 찾으면 격자로 훑어서 첫 빈칸에, 그래도 없으면 간격 없이 배치 (정답 단어가 빠지지 않도록)
+    if(!p){const step=8;outer:for(let g of [G,2]){for(let y=2;y<=H-h-2;y+=step)for(let x=2;x<=W-w-2;x+=step){if(free(x,y,w,h,g)){p={x,y,w,h};break outer;}}}}
+    if(!p)p={x:Math.random()*Math.max(1,W-w),y:Math.random()*Math.max(1,H-h),w,h};
+    items.push({word,...p});
   }
   return items;
 }
@@ -90,6 +97,10 @@ export default function App(){
   const [connStatus,setConnStatus]=useState("connecting");
   const [muted,setMutedState]=useState(isMuted());
   const [showPlayers,setShowPlayers]=useState(false);
+  const [qrUrl,setQrUrl]=useState(null);
+  const [showQR,setShowQR]=useState(false);
+  const [showQList,setShowQList]=useState(false);
+  const [wordFs,setWordFs]=useState(13);
   const [now,setNow]=useState(Date.now());
 
   const checkTeacherUrl=()=>typeof window!=="undefined"&&(new URLSearchParams(window.location.search).get("mode")==="admin"||window.location.hash==="#leethemom");
@@ -103,8 +114,13 @@ export default function App(){
 
   const toggleMute=()=>{const v=!muted;persistMuted(v);setMutedState(v);if(!v){unlockAudio();SFX.click();}};
 
+  const openQR=async()=>{
+    SFX.click();
+    if(!qrUrl){try{setQrUrl(await QRCode.toDataURL(STUDENT_URL,{width:640,margin:1,color:{dark:"#3B3F45",light:"#ffffff"}}));}catch{}}
+    setShowQR(true);
+  };
   const copyStudentUrl=async()=>{
-    const url=window.location.origin+window.location.pathname;
+    const url=STUDENT_URL;
     try{
       if(navigator.clipboard&&window.isSecureContext){
         await navigator.clipboard.writeText(url);
@@ -204,7 +220,10 @@ export default function App(){
     const words=wordsOf(curSetId);
     const update=()=>{
       const{width:W,height:H}=el.getBoundingClientRect();
-      if(W>0&&H>0)setItems(place(words,W,H));
+      // 학생 화면은 크게(넓은 화면 19px, 좁은 화면 15px), 선생님 화면은 작게(13px)
+      const fs=isTeacher?13:(W<640?15:19);
+      setWordFs(fs);
+      if(W>0&&H>0)setItems(place(words,W,H,fs));
     };
     update();
     const onResize=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(update);};
@@ -212,7 +231,7 @@ export default function App(){
     ro.observe(el);
     window.addEventListener("resize",onResize);
     return()=>{ro.disconnect();window.removeEventListener("resize",onResize);cancelAnimationFrame(raf);};
-  },[page,curSetId]);
+  },[page,curSetId,isTeacher]);
 
   const startSession=useCallback(async(name,teacher)=>{
     unlockAudio();
@@ -483,6 +502,30 @@ export default function App(){
   const rankOf=name=>sorted.findIndex(([n])=>n===name);
   const medal=i=>i===0?C.yellow:i===1?C.teal:i===2?C.red:C.gray;
 
+  const PlayerList=({showFooter})=>(
+    <>
+      <div style={{flex:1,overflow:"auto",padding:"8px"}}>
+        {sorted.length===0&&<div style={{color:C.gray,fontSize:"12px",textAlign:"center",padding:"20px 0"}}>아직 참가자가 없어요</div>}
+        {sorted.map(([n,d],i)=>{
+          const on=isOnline(d);
+          return(
+            <div key={n} style={{display:"flex",alignItems:"center",gap:"8px",padding:"7px 8px",borderRadius:"10px",background:n===myName?"#FFF7E0":"transparent",opacity:on?1:0.5,marginBottom:"2px"}}>
+              <span style={{width:"20px",height:"20px",borderRadius:"50%",background:i<3?medal(i):C.light,color:i<3?"#fff":C.gray,fontSize:"10px",fontWeight:"900",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
+              <span style={{width:"8px",height:"8px",borderRadius:"50%",background:on?d.color:C.gray,display:"inline-block",flexShrink:0}}/>
+              <span style={{color:C.dark,fontSize:"13px",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:n===myName?"900":"600"}}>{n}{n===myName&&" (나)"}</span>
+              {!on&&<span style={{color:C.gray,fontSize:"10px"}}>나감?</span>}
+              <span style={{color:C.dark,fontWeight:"900",fontSize:"13px"}}>{d.score||0}</span>
+              {isTeacher&&<button onClick={()=>kickPlayer(n)} title="제거" style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"12px",padding:"0 2px"}}>✕</button>}
+            </div>
+          );
+        })}
+      </div>
+      {showFooter&&<div style={{padding:"8px 12px",borderTop:`1px solid ${C.line}`,color:C.gray,fontSize:"10.5px",lineHeight:1.5,background:C.light}}>
+        ● 최근 30초 안에 신호가 온 사람 · 회색은 창을 닫았거나 연결이 끊긴 사람
+      </div>}
+    </>
+  );
+
   const btn=(extra={})=>({padding:"10px 16px",borderRadius:"10px",border:"none",color:"#fff",fontWeight:"900",cursor:"pointer",fontSize:"13px",whiteSpace:"nowrap",fontFamily:FONT,...extra});
   const ghost=(extra={})=>btn({background:"#fff",border:`1.5px solid ${C.line}`,color:C.dark,...extra});
   const chip=(color)=>({background:"#fff",borderRadius:"999px",padding:"4px 10px 4px 6px",border:`1px solid ${C.line}`,display:"flex",gap:"6px",alignItems:"center"});
@@ -518,11 +561,11 @@ export default function App(){
               <span style={{color:medal(ri),fontWeight:"900",fontSize:"12px"}}>{d.score||0}</span>
             </div>
           ))}
-          <button onClick={()=>{setShowPlayers(v=>!v);SFX.click();}} title="참가자 전체 보기"
+          {!isTeacher&&<button onClick={()=>{setShowPlayers(v=>!v);SFX.click();}} title="참가자 전체 보기"
             style={{background:showPlayers?C.dark:C.teal,border:"none",color:"#fff",fontSize:"12px",fontWeight:"900",padding:"7px 12px",borderRadius:"10px",cursor:"pointer",whiteSpace:"nowrap",display:"flex",gap:"6px",alignItems:"center",fontFamily:FONT}}>
             👥 <span style={{fontSize:"14px"}}>{onlineStudents}</span>명
             {studentEntries.length>onlineStudents&&<span style={{opacity:0.7,fontWeight:"600"}}>/{studentEntries.length}</span>}
-          </button>
+          </button>}
           <button onClick={toggleMute} title={muted?"소리 켜기":"소리 끄기"}
             style={{background:"#fff",border:`1.5px solid ${C.line}`,color:C.dark,fontSize:"15px",padding:"4px 9px",borderRadius:"10px",cursor:"pointer",lineHeight:1.4}}>
             {muted?"🔇":"🔊"}
@@ -531,7 +574,8 @@ export default function App(){
         {isTeacher&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
       </div>
 
-      {/* ── 단어 영역 ── */}
+      {/* ── 단어 영역 (+ 선생님 사이드바) ── */}
+      <div style={{flex:1,display:"flex",minHeight:0}}>
       <div ref={areaRef} style={{flex:1,position:"relative",overflow:"hidden"}}>
         {feedback&&<div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",fontSize:"80px",zIndex:60,animation:"pop 1.3s forwards",pointerEvents:"none"}}>{feedback}</div>}
 
@@ -575,6 +619,7 @@ export default function App(){
                     🧹 나간 사람 {studentEntries.length-onlineStudents}명 정리
                   </button>
                 )}
+                {isTeacher&&<button onClick={openQR} style={btn({background:C.dark,fontSize:"11px",padding:"6px 12px"})}>📱 QR 입장 화면 띄우기</button>}
                 {teacherName&&<span style={{color:C.gray,fontSize:"11px",marginLeft:"auto"}}>👩‍🏫 선생님 입장 완료</span>}
               </div>
             </div>
@@ -625,33 +670,15 @@ export default function App(){
           </div>
         )}
 
-        {/* 참가자 전체 패널 */}
-        {showPlayers&&(
+        {/* 참가자 전체 패널 (학생용 서랍) */}
+        {showPlayers&&!isTeacher&&(
           <div style={{position:"absolute",top:0,right:0,bottom:0,width:"270px",maxWidth:"80%",zIndex:50,background:"#fff",borderLeft:`1px solid ${C.line}`,display:"flex",flexDirection:"column",boxShadow:"-12px 0 30px rgba(59,63,69,0.1)"}}>
             <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"8px"}}>
               <span style={{color:C.dark,fontWeight:"900",fontSize:"14px",flex:1}}>👥 참가자 {studentEntries.length}명</span>
               <span style={{color:C.teal,fontSize:"11px",fontWeight:"800"}}>● {onlineStudents} 접속</span>
               <button onClick={()=>setShowPlayers(false)} style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"16px",padding:"0 2px"}}>✕</button>
             </div>
-            <div style={{flex:1,overflow:"auto",padding:"8px"}}>
-              {sorted.length===0&&<div style={{color:C.gray,fontSize:"12px",textAlign:"center",padding:"20px 0"}}>아직 참가자가 없어요</div>}
-              {sorted.map(([n,d],i)=>{
-                const on=isOnline(d);
-                return(
-                  <div key={n} style={{display:"flex",alignItems:"center",gap:"8px",padding:"7px 8px",borderRadius:"10px",background:n===myName?"#FFF7E0":"transparent",opacity:on?1:0.5,marginBottom:"2px"}}>
-                    <span style={{width:"20px",height:"20px",borderRadius:"50%",background:i<3?medal(i):C.light,color:i<3?"#fff":C.gray,fontSize:"10px",fontWeight:"900",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
-                    <span style={{width:"8px",height:"8px",borderRadius:"50%",background:on?d.color:C.gray,display:"inline-block",flexShrink:0}}/>
-                    <span style={{color:C.dark,fontSize:"13px",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:n===myName?"900":"600"}}>{n}{n===myName&&" (나)"}</span>
-                    {!on&&<span style={{color:C.gray,fontSize:"10px"}}>나감?</span>}
-                    <span style={{color:C.dark,fontWeight:"900",fontSize:"13px"}}>{d.score||0}</span>
-                    {isTeacher&&<button onClick={()=>kickPlayer(n)} title="제거" style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"12px",padding:"0 2px"}}>✕</button>}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{padding:"8px 12px",borderTop:`1px solid ${C.line}`,color:C.gray,fontSize:"10.5px",lineHeight:1.5,background:C.light}}>
-              ● 최근 30초 안에 신호가 온 사람 · 회색은 창을 닫았거나 연결이 끊긴 사람
-            </div>
+            <PlayerList showFooter/>
           </div>
         )}
 
@@ -667,7 +694,7 @@ export default function App(){
           if(revealed&&isAns){bg=C.teal;brd=`1.5px solid ${C.teal}`;col="#fff";glow=`0 8px 22px ${C.teal}66`;sc="1.12";}
           return(
             <div key={it.word} onClick={()=>canClick&&clickWord(it.word)} className={canClick?"wd":""}
-              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:"10px",padding:"6px 12px",fontSize:"13px",fontWeight:"800",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
+              style={{position:"absolute",left:it.x,top:it.y,background:bg,border:brd,color:col,borderRadius:`${Math.round(wordFs*0.8)}px`,padding:`${Math.round(wordFs*0.5)}px ${Math.round(wordFs*0.9)}px`,fontSize:`${wordFs}px`,fontWeight:"800",userSelect:"none",whiteSpace:"nowrap",cursor:canClick?"pointer":"default",transition:"all 0.2s",boxShadow:glow,transform:`scale(${sc})`,display:"flex",alignItems:"center",gap:"4px"}}>
               {it.word}
               {showDots&&clickers.length>0&&(
                 <span style={{display:"flex",gap:"2px",marginLeft:"3px"}}>
@@ -678,6 +705,73 @@ export default function App(){
           );
         })}
       </div>
+
+      {isTeacher&&(
+        <div style={{width:"300px",flexShrink:0,background:"#fff",borderLeft:`1px solid ${C.line}`,display:"flex",flexDirection:"column",minHeight:0}}>
+          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"8px"}}>
+            <span style={{color:C.dark,fontWeight:"900",fontSize:"14px",flex:1}}>👥 참가자 {studentEntries.length}명</span>
+            <span style={{background:C.teal,color:"#fff",borderRadius:"999px",padding:"2px 9px",fontSize:"11px",fontWeight:"900"}}>● {onlineStudents} 접속</span>
+          </div>
+          {phase==="active"&&(
+            <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.line}`,display:"flex",gap:"6px",fontSize:"11px",fontWeight:"800"}}>
+              <span style={{background:C.light,borderRadius:"6px",padding:"3px 8px",color:C.dark}}>클릭 {Object.keys(gs?.clicks||{}).filter(n=>!isTeacherName(n)).length}</span>
+              <span style={{background:"#FDECEB",borderRadius:"6px",padding:"3px 8px",color:C.red}}>오답 {Object.keys(gs?.locked||{}).filter(n=>!isTeacherName(n)).length}</span>
+              <span style={{background:C.light,borderRadius:"6px",padding:"3px 8px",color:C.gray}}>대기 {Math.max(0,onlineStudents-Object.keys(gs?.clicks||{}).filter(n=>!isTeacherName(n)&&isOnline(players[n])).length)}</span>
+            </div>
+          )}
+          <PlayerList showFooter/>
+          {studentEntries.length>onlineStudents&&(
+            <div style={{padding:"8px",borderTop:`1px solid ${C.line}`}}>
+              <button onClick={clearOffline} style={ghost({width:"100%",color:C.red,border:`1.5px solid ${C.red}66`,fontSize:"11px",padding:"7px"})}>🧹 나간 사람 {studentEntries.length-onlineStudents}명 정리</button>
+            </div>
+          )}
+        </div>
+      )}
+      </div>
+
+      {/* ── QR 모달 ── */}
+      {showQR&&(
+        <div onClick={()=>setShowQR(false)} style={{position:"fixed",inset:0,zIndex:100,background:"rgba(59,63,69,0.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:"24px 28px 22px",textAlign:"center",maxWidth:"min(92vw,560px)",boxSizing:"border-box"}}>
+            {stripe}
+            <div style={{color:C.gray,fontSize:"11px",fontWeight:"800",letterSpacing:"0.12em",margin:"16px 0 2px"}}>SCAN TO JOIN</div>
+            <div style={{color:C.dark,fontWeight:"900",fontSize:"22px",marginBottom:"12px"}}>📱 핸드폰 카메라로 QR을 찍어 입장하세요</div>
+            {qrUrl?<img src={qrUrl} alt="입장 QR" style={{width:"min(70vw,440px)",height:"auto",borderRadius:"12px",border:`1px solid ${C.line}`}}/>:<div style={{color:C.gray,padding:"40px"}}>QR 생성 중...</div>}
+            <div style={{marginTop:"12px",background:C.light,borderRadius:"10px",padding:"10px 14px",color:C.dark,fontWeight:"800",fontSize:"18px",wordBreak:"break-all"}}>{STUDENT_URL.replace(/^https?:\/\//,"").replace(/\/$/,"")}</div>
+            <div style={{display:"flex",gap:"8px",justifyContent:"center",marginTop:"14px"}}>
+              <button onClick={copyStudentUrl} style={ghost()}>🔗 주소 복사</button>
+              <button onClick={()=>setShowQR(false)} style={btn({background:C.dark})}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 문제 목록 모달 (선생님) ── */}
+      {showQList&&(
+        <div onClick={()=>setShowQList(false)} style={{position:"fixed",inset:0,zIndex:100,background:"rgba(59,63,69,0.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,width:"720px",maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden"}}>
+            <div style={{padding:"16px 20px 12px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}>
+              <span style={{width:"34px",height:"34px",borderRadius:"10px",background:SET_COLOR[setId],display:"flex",alignItems:"center",justifyContent:"center",fontSize:"18px"}}>{getSet(setId).emoji}</span>
+              <div style={{flex:1,minWidth:"160px"}}>
+                <div style={{color:C.dark,fontWeight:"900",fontSize:"16px"}}>{getSet(setId).name} 문제 목록 <span style={{color:C.gray,fontSize:"12px",fontWeight:"600"}}>· 50문제 중 {numQ}개가 무작위 출제</span></div>
+                <div style={{display:"flex",gap:"4px",marginTop:"6px",flexWrap:"wrap"}}>
+                  {QUESTION_SETS.map(q=><button key={q.id} onClick={()=>setSetId(q.id)} style={{padding:"3px 9px",borderRadius:"999px",border:`1px solid ${q.id===setId?SET_COLOR[q.id]:C.line}`,background:q.id===setId?SET_COLOR[q.id]:"#fff",color:q.id===setId?"#fff":C.dark,fontSize:"11px",fontWeight:"800",cursor:"pointer",fontFamily:FONT}}>{q.emoji} {q.name}</button>)}
+                </div>
+              </div>
+              <button onClick={()=>setShowQList(false)} style={{background:"none",border:"none",color:C.gray,cursor:"pointer",fontSize:"20px"}}>✕</button>
+            </div>
+            <div style={{overflow:"auto",padding:"8px 12px 14px"}}>
+              {getSet(setId).questions.map((x,i)=>(
+                <div key={i} style={{display:"flex",gap:"10px",alignItems:"flex-start",padding:"7px 8px",borderBottom:`1px solid ${C.light}`,fontSize:"13px"}}>
+                  <span style={{color:C.gray,fontWeight:"800",minWidth:"24px",textAlign:"right"}}>{i+1}</span>
+                  <span style={{color:C.dark,flex:1,lineHeight:1.45}}>{x.q}</span>
+                  <span style={{color:"#fff",background:SET_COLOR[setId],borderRadius:"6px",padding:"2px 8px",fontWeight:"900",whiteSpace:"nowrap"}}>{x.a}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 하단 바 ── */}
       {isTeacher?(
@@ -731,7 +825,8 @@ export default function App(){
             {(phase==="active"||phase==="revealed")&&(
               <button onClick={restart} style={ghost({color:C.red,border:`1.5px solid ${C.red}66`})}>🔄 재시작</button>
             )}
-            <button onClick={copyStudentUrl} style={btn({background:C.dark,marginLeft:"auto"})}>📋 학생 입장 링크 복사</button>
+            <button onClick={()=>{setShowQList(true);SFX.click();}} style={ghost({marginLeft:"auto"})}>📋 문제 보기</button>
+            <button onClick={openQR} style={btn({background:C.dark})}>📱 QR 입장</button>
             <button onClick={resetAll} style={ghost({color:C.gray})}>🗑 전체 초기화</button>
           </div>
         </div>
