@@ -16,9 +16,9 @@ const FIREBASE_CONFIG = {
 };
 
 const ROOM = "default";
-const ROUND_SEC = 60;
+const ROUND_SEC = 20;
 const ADV_DELAY = 3000;
-// 선생님 비밀번호 (여러 개 허용)
+// 관리자 비밀번호 (여러 개 허용)
 const T_PASSES = ["123123", "911280"];
 
 // ── 점수 규칙 ─────────────────────────────────────────────
@@ -178,12 +178,34 @@ export default function App(){
 
   useEffect(()=>{
     clearInterval(advRef.current);setAdvCnt(null);
-    if(!gs?.autoAdvAt||gs.phase!=="revealed"||!gs.winner)return;
+    if(!gs?.autoAdvAt||gs.phase!=="revealed")return;
     const advAt=gs.autoAdvAt;
     const tick=()=>setAdvCnt(Math.max(0,Math.ceil((advAt-Date.now())/1000)));
     tick();advRef.current=setInterval(tick,400);
     return()=>clearInterval(advRef.current);
-  },[gs?.autoAdvAt,gs?.winner,gs?.currentIdx,gs?.phase]);
+  },[gs?.autoAdvAt,gs?.currentIdx,gs?.phase]);
+
+  // 우승자 없는 공개(시간 초과·전원 오답·정답 공개 버튼)는 관리자 화면이 자동으로 다음 문제로 넘김
+  useEffect(()=>{
+    if(!isTeacher||gs?.phase!=="revealed"||gs.winner||!gs.autoAdvAt)return;
+    const snapIdx=gs.currentIdx,advAt=gs.autoAdvAt;
+    const t=setTimeout(async()=>{
+      const latest=await fbGet();
+      if(!latest||latest.currentIdx!==snapIdx||latest.phase!=="revealed"||latest.winner||latest.autoAdvAt!==advAt)return;
+      const next=snapIdx+1;
+      if(next>=latest.questions.length){await wr({...latest,phase:"finished",autoAdvAt:null});return;}
+      await wr({...latest,currentIdx:next,phase:"active",clicks:{},locked:{},winner:null,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
+    },Math.max(0,advAt-Date.now()));
+    return()=>clearTimeout(t);
+  },[isTeacher,gs?.phase,gs?.winner,gs?.autoAdvAt,gs?.currentIdx,wr]);
+
+  // 시간 초과 시 관리자 화면이 자동으로 정답 공개
+  useEffect(()=>{
+    if(!isTeacher||gs?.phase!=="active"||!gs.startTime)return;
+    const idx=gs.currentIdx;
+    const t=setTimeout(()=>doReveal(idx),Math.max(0,gs.startTime+ROUND_SEC*1000-Date.now())+200);
+    return()=>clearTimeout(t);
+  },[isTeacher,gs?.phase,gs?.startTime,gs?.currentIdx]);
 
   // ── 효과음 트리거: 게임 상태 변화 감지 ──
   useEffect(()=>{
@@ -263,7 +285,7 @@ export default function App(){
   },[wr]);
 
   const joinTeacher=useCallback(async()=>{
-    if(!T_PASSES.includes(passIn.trim())){setErr("선생님 비밀번호가 틀렸습니다");return;}
+    if(!T_PASSES.includes(passIn.trim())){setErr("관리자 비밀번호가 틀렸습니다");return;}
     await startSession("선생님",true);
   },[startSession,passIn]);
 
@@ -274,7 +296,7 @@ export default function App(){
   },[showPassInput,joinTeacher]);
 
   const releaseTeacher=useCallback(async()=>{
-    if(!window.confirm("선생님 슬롯을 해제할까요?\n다른 사람이 선생님으로 입장할 수 있게 됩니다."))return;
+    if(!window.confirm("관리자 슬롯을 해제할까요?\n다른 사람이 관리자로 입장할 수 있게 됩니다."))return;
     const cur=await fbGet();
     if(cur){
       const players={...(cur.players||{})};delete players["선생님"];
@@ -288,7 +310,7 @@ export default function App(){
     if(!name){setErr("닉네임을 입력해주세요");return;}
     if(name.length>12){setErr("닉네임은 12자 이내로 입력해주세요");return;}
     if(BAD_NAME.test(name)){setErr("닉네임에 . # $ [ ] / 기호는 쓸 수 없습니다");return;}
-    if(name==="선생님"){setErr('"선생님"은 사용할 수 없는 닉네임입니다');return;}
+    if(name==="선생님"||name==="관리자"){setErr(`"${name}"은 사용할 수 없는 닉네임입니다`);return;}
     await startSession(name,false);
   },[nameIn,startSession]);
 
@@ -301,7 +323,13 @@ export default function App(){
     const cur=await fbGet();if(!cur)return;
     await wr({...cur,setId:setIdRef.current,questions:pickQuestions(),currentIdx:0,phase:"active",clicks:{},locked:{},winner:null,round:(cur.round||0)+1,startTime:Date.now(),autoAdvAt:null,lastBonus:null,winSec:null});
   };
-  const doReveal=async()=>{const cur=await fbGet();if(cur)await wr({...cur,phase:"revealed",winner:null,autoAdvAt:null});};
+  // 정답 공개(우승자 없음): ADV_DELAY 동안 정답을 보여주고 자동으로 다음 문제로 넘어감
+  const doReveal=async(idx)=>{
+    const cur=await fbGet();
+    if(!cur||cur.phase!=="active")return;
+    if(idx!=null&&cur.currentIdx!==idx)return;
+    await wr({...cur,phase:"revealed",winner:null,autoAdvAt:Date.now()+ADV_DELAY});
+  };
   const manualNext=async()=>{
     const cur=await fbGet();if(!cur)return;
     const next=cur.currentIdx+1;
@@ -320,7 +348,7 @@ export default function App(){
     await wr({...cur,questions:[],currentIdx:-1,phase:"waiting",players,clicks:{},locked:{},winner:null,startTime:null,autoAdvAt:null,lastBonus:null,winSec:null});
   };
   const resetAll=async()=>{
-    if(!window.confirm("정말 전체 초기화할까요?\n모든 플레이어와 점수가 삭제됩니다.\n선생님도 다시 입장해야 합니다."))return;
+    if(!window.confirm("정말 전체 초기화할까요?\n모든 플레이어와 점수가 삭제됩니다.\n관리자도 다시 입장해야 합니다."))return;
     await wr(freshState());
     clearInterval(pollRef.current);clearInterval(hbRef.current);
     setPage("login");setMyName("");setNameIn("");setIsTeacher(false);setTeacherTaken(false);
@@ -379,7 +407,7 @@ export default function App(){
       const participants=Object.entries(cur.players||{}).filter(([p,d])=>p!==tName&&p!=="선생님"&&d?.lastSeen&&nowMs-d.lastSeen<ONLINE_MS).map(([p])=>p);
       const lockedStudents=participants.filter(p=>cur.locked[p]);
       if(participants.length>0&&lockedStudents.length>=participants.length){
-        cur.phase="revealed";cur.winner=null;cur.autoAdvAt=null;
+        cur.phase="revealed";cur.winner=null;cur.autoAdvAt=Date.now()+ADV_DELAY;
       }
       await wr(cur);
     }
@@ -408,7 +436,7 @@ export default function App(){
       [C.yellow,"1",<>가장 <b>먼저</b> 정답을 클릭한 <b>1명만</b> 점수를 얻어요</>],
       [C.teal,"2",<><b>{MAX_PT}점</b>에서 시작해 1초에 1점씩 줄어요 (최소 <b>{MIN_PT}점</b>)</>],
       [C.red,"3",<>오답을 누르면 이번 문제는 끝. 다음 문제에서 다시!</>],
-      [C.dark,"4",<>{ROUND_SEC}초 안에 아무도 못 맞히면 정답만 공개돼요</>],
+      [C.dark,"4",<>{ROUND_SEC}초 안에 아무도 못 맞히면 정답이 3초간 공개되고 다음 문제로 넘어가요</>],
     ];
     return(
       <div style={{textAlign:"left"}}>
@@ -453,17 +481,17 @@ export default function App(){
             <button onClick={handleTeacherClick}
               style={{width:"100%",padding:"15px",borderRadius:"14px",marginBottom:"6px",background:teacherTaken&&!showPassInput?C.light:C.yellow,border:teacherTaken&&!showPassInput?`2px dashed ${C.yellow}`:"none",color:teacherTaken&&!showPassInput?"#a07a1a":"#3b2f00",fontWeight:"900",cursor:"pointer",fontSize:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",boxShadow:teacherTaken&&!showPassInput?"none":`0 8px 18px ${C.yellow}55`}}>
               <span style={{fontSize:"22px"}}>👩‍🏫</span>
-              <span>{showPassInput?"비밀번호 확인 후 입장":teacherTaken?"선생님 (입장 중) — 권한 이어받기":"선생님으로 입장"}</span>
+              <span>{showPassInput?"비밀번호 확인 후 입장":teacherTaken?"관리자 (입장 중) — 권한 이어받기":"관리자로 입장"}</span>
             </button>
             {showPassInput&&(
-              <input type="password" autoFocus placeholder="선생님 비밀번호" value={passIn}
+              <input type="password" autoFocus placeholder="관리자 비밀번호" value={passIn}
                 onChange={e=>{setPassIn(e.target.value);setErr("");}}
                 onKeyDown={e=>e.key==="Enter"&&joinTeacher()}
                 style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`2px solid ${C.yellow}`,background:"#fff",color:C.dark,fontSize:"15px",boxSizing:"border-box",marginTop:"6px",outline:"none",fontFamily:FONT}}/>
             )}
             {teacherTaken?(
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",padding:"0 4px"}}>
-                <p style={{color:C.gray,fontSize:"11px",margin:0,textAlign:"left"}}>※ 이미 선생님이 있어요. 비밀번호를 넣으면 권한을 이어받습니다</p>
+                <p style={{color:C.gray,fontSize:"11px",margin:0,textAlign:"left"}}>※ 이미 관리자가 있어요. 비밀번호를 넣으면 권한을 이어받습니다</p>
                 <button onClick={releaseTeacher}
                   style={{background:"none",border:"none",color:C.gray,fontSize:"11px",cursor:"pointer",textDecoration:"underline",padding:"2px 4px"}}>
                   슬롯 해제
@@ -549,7 +577,7 @@ export default function App(){
           </div>
         )}
         <div style={{flex:narrow?"none":1,width:narrow?"100%":"auto",order:narrow?10:0,minWidth:0,background:C.light,borderRadius:"12px",padding:narrow?"8px 12px":"8px 14px",display:"flex",alignItems:"center",gap:"8px",overflow:"hidden",minHeight:"36px",boxSizing:"border-box"}}>
-          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>🕐 선생님이 게임을 시작하기를 기다리는 중...</span>}
+          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>🕐 관리자가 게임을 시작하기를 기다리는 중...</span>}
           {(phase==="active"||phase==="revealed")&&curQ&&<>
             <span style={{color:"#fff",background:setColor,borderRadius:"6px",padding:"2px 7px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap",flexShrink:0}}>{qi+1}/{totalQ}</span>
             <span style={{color:C.dark,fontWeight:"800",fontSize:narrow?"14px":"14px",lineHeight:1.35,minWidth:0}}>{curQ.q}</span>
@@ -575,7 +603,7 @@ export default function App(){
             {muted?"🔇":"🔊"}
           </button>
         </div>
-        {isTeacher&&!narrow&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 선생님</span>}
+        {isTeacher&&!narrow&&<span style={{background:C.yellow,color:"#3b2f00",fontSize:"11px",fontWeight:"900",padding:"5px 10px",borderRadius:"8px",whiteSpace:"nowrap",flexShrink:0}}>👩‍🏫 관리자</span>}
       </div>
 
       {/* ── 단어 영역 (+ 선생님 사이드바) ── */}
@@ -624,7 +652,7 @@ export default function App(){
                   </button>
                 )}
                 {isTeacher&&<button onClick={openQR} style={btn({background:C.dark,fontSize:"11px",padding:"6px 12px"})}>📱 QR 입장 화면 띄우기</button>}
-                {teacherName&&<span style={{color:C.gray,fontSize:"11px",marginLeft:"auto"}}>👩‍🏫 선생님 입장 완료</span>}
+                {teacherName&&<span style={{color:C.gray,fontSize:"11px",marginLeft:"auto"}}>👩‍🏫 관리자 입장 완료</span>}
               </div>
             </div>
           </div>
@@ -649,7 +677,8 @@ export default function App(){
         {phase==="revealed"&&!winner&&(
           <div style={{position:"absolute",top:"16px",left:"50%",transform:"translateX(-50%)",zIndex:40,...card,padding:"12px 24px",textAlign:"center",borderTop:`5px solid ${C.red}`}}>
             <div style={{color:C.red,fontWeight:"900",fontSize:"15px",marginBottom:"4px"}}>⌛ 아무도 못 맞혔어요!</div>
-            <div style={{color:C.gray,fontSize:"13px"}}>정답: <strong style={{color:C.dark,fontSize:"16px"}}>{curQ?.a}</strong> · 이번 문제는 점수 없음</div>
+            <div style={{color:C.gray,fontSize:"13px"}}>정답: <strong style={{color:C.teal,fontSize:"22px"}}>{curQ?.a}</strong> · 이번 문제는 점수 없음</div>
+            {advCnt>0&&<div style={{color:C.gray,fontSize:"12px",marginTop:"4px"}}>{advCnt}초 후 다음 문제...</div>}
           </div>
         )}
 
@@ -750,7 +779,7 @@ export default function App(){
         </div>
       )}
 
-      {/* ── 문제 목록 모달 (선생님) ── */}
+      {/* ── 문제 목록 모달 (관리자) ── */}
       {showQList&&(
         <div onClick={()=>setShowQList(false)} style={{position:"fixed",inset:0,zIndex:100,background:"rgba(59,63,69,0.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
           <div onClick={e=>e.stopPropagation()} style={{...card,width:"720px",maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxSizing:"border-box",overflow:"hidden"}}>
@@ -782,7 +811,7 @@ export default function App(){
         <div style={{padding:narrow?"8px 10px":"12px 16px",background:"#fff",borderTop:`4px solid ${C.yellow}`,maxHeight:"45vh",overflow:"auto"}}>
           {curQ&&(phase==="active"||phase==="revealed")&&(
             <div style={{background:"#FFF7E0",borderRadius:"12px",padding:"9px 16px",marginBottom:"10px",display:"flex",alignItems:"center",gap:"14px",flexWrap:"wrap"}}>
-              <span style={{color:"#3b2f00",background:C.yellow,borderRadius:"6px",padding:"2px 8px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap"}}>👩‍🏫 선생님 전용</span>
+              <span style={{color:"#3b2f00",background:C.yellow,borderRadius:"6px",padding:"2px 8px",fontSize:"11px",fontWeight:"900",whiteSpace:"nowrap"}}>👩‍🏫 관리자 전용</span>
               <span style={{color:C.dark,fontSize:"14px",flex:1}}>{curQ.q}</span>
               <span style={{color:C.teal,fontWeight:"900",fontSize:"16px",whiteSpace:"nowrap"}}>✅ {curQ.a}</span>
             </div>
@@ -818,12 +847,12 @@ export default function App(){
             {phase==="finished"&&(
               <button onClick={backToLobby} style={ghost()}>🚪 대기실로</button>
             )}
-            {phase==="active"&&timeExpired&&(
-              <button onClick={doReveal} style={btn({background:C.red})}>⌛ 시간 초과 — 정답 공개</button>
+            {phase==="active"&&(
+              <button onClick={()=>doReveal(qi)} style={btn({background:C.teal})}>💡 정답 공개</button>
             )}
             {phase==="revealed"&&!winner&&(
               <button onClick={manualNext} style={btn({background:C.teal})}>
-                ➡ 다음 문제 {qi+1<totalQ?`(${qi+2}/${totalQ})`:"(마지막)"}
+                ➡ 바로 다음 문제 {qi+1<totalQ?`(${qi+2}/${totalQ})`:"(마지막)"}
               </button>
             )}
             {(phase==="active"||phase==="revealed")&&(
@@ -837,11 +866,11 @@ export default function App(){
       ):(
         <div style={{padding:narrow?"8px 10px":"10px 16px",background:"#fff",borderTop:`4px solid ${C.teal}`,display:"flex",alignItems:"center",gap:narrow?"6px":"10px",minHeight:"46px",flexWrap:"wrap",fontSize:narrow?"12px":"13px"}}>
           <span style={{background:C.teal,color:"#fff",fontSize:"11px",fontWeight:"900",padding:"4px 10px",borderRadius:"8px",flexShrink:0}}>🎮 플레이어</span>
-          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>선생님이 게임을 시작하기를 기다리는 중...</span>}
+          {phase==="waiting"&&<span style={{color:C.gray,fontSize:"13px"}}>관리자가 게임을 시작하기를 기다리는 중...</span>}
           {phase==="active"&&!myClicked&&!isLocked&&!timeExpired&&<span style={{color:C.dark,fontSize:"13px",fontWeight:"800"}}>👆 정답이라고 생각하는 단어를 클릭하세요! <span style={{color:C.gray,fontWeight:"600"}}>(빠를수록 높은 점수)</span></span>}
           {phase==="active"&&isLocked&&<span style={{color:C.red,fontSize:"13px",fontWeight:"800"}}>🚫 오답! 이번 문제 참여 불가 · 다음 문제에서 만회하세요</span>}
           {phase==="active"&&myClicked&&!isLocked&&<span style={{color:C.gray,fontSize:"13px"}}>⏳ 다른 플레이어를 기다리는 중...</span>}
-          {phase==="active"&&timeExpired&&!isLocked&&!myClicked&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 시간 초과! 선생님이 정답을 공개합니다...</span>}
+          {phase==="active"&&timeExpired&&!isLocked&&!myClicked&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 시간 초과! 정답을 공개합니다...</span>}
           {phase==="revealed"&&winner===myName&&<span style={{color:C.teal,fontSize:"14px",fontWeight:"900"}}>🎉 정답! +{gs?.lastBonus}점 획득!</span>}
           {phase==="revealed"&&winner&&winner!==myName&&<span style={{color:C.gray,fontSize:"13px"}}>👏 {winner}님이 먼저 맞혔어요 (+{gs?.lastBonus}점)</span>}
           {phase==="revealed"&&!winner&&<span style={{color:C.gray,fontSize:"13px"}}>⌛ 아무도 못 맞혔어요. 정답을 확인하세요.</span>}
