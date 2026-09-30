@@ -18,6 +18,7 @@ const FIREBASE_CONFIG = {
 const ROOM = "default";
 const ROUND_SEC = 20;
 const ADV_DELAY = 3000;
+const STALE_MS = 8000; // 자동 공개/진행은 마감 시각 직후에만 동작 (방치된 옛 게임이 저절로 굴러가는 것 방지)
 // 관리자 비밀번호 (여러 개 허용)
 const T_PASSES = ["123123", "911280"];
 
@@ -189,6 +190,7 @@ export default function App(){
   useEffect(()=>{
     if(!isTeacher||gs?.phase!=="revealed"||gs.winner||!gs.autoAdvAt)return;
     const snapIdx=gs.currentIdx,advAt=gs.autoAdvAt;
+    if(Date.now()-advAt>STALE_MS)return; // 오래 방치된 상태는 자동 진행하지 않음
     const t=setTimeout(async()=>{
       const latest=await fbGet();
       if(!latest||latest.currentIdx!==snapIdx||latest.phase!=="revealed"||latest.winner||latest.autoAdvAt!==advAt)return;
@@ -203,6 +205,7 @@ export default function App(){
   useEffect(()=>{
     if(!isTeacher||gs?.phase!=="active"||!gs.startTime)return;
     const idx=gs.currentIdx;
+    if(Date.now()-(gs.startTime+ROUND_SEC*1000)>STALE_MS)return; // 오래 방치된 상태는 자동 공개하지 않음
     const t=setTimeout(()=>doReveal(idx),Math.max(0,gs.startTime+ROUND_SEC*1000-Date.now())+200);
     return()=>clearTimeout(t);
   },[isTeacher,gs?.phase,gs?.startTime,gs?.currentIdx]);
